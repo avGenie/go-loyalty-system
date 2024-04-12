@@ -4,10 +4,15 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
+	err_api "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/storage/api/model"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/pressly/goose/v3"
 )
 
@@ -42,6 +47,23 @@ func NewPostgresStorage(dbStorageConnect string) (*Postgres, error) {
 }
 
 func (s *Postgres) CreateUser(ctx context.Context, user entity.User) error {
+	query := `INSERT INTO user VALUES(@userID, @login, @password)`
+	args := pgx.NamedArgs{
+		"userID":   user.ID.String(),
+		"login":    user.Login,
+		"password": user.Password,
+	}
+
+	_, err := s.db.ExecContext(ctx, query, args)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgerrcode.IsIntegrityConstraintViolation(pgErr.Code) {
+			return fmt.Errorf("error while save url to postgres: %w", err_api.ErrLoginExists)
+		}
+
+		return fmt.Errorf("unable to insert row to postgres: %w", err)
+	}
+
 	return nil
 }
 

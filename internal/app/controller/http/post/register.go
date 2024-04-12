@@ -9,7 +9,7 @@ import (
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/model"
-	storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api"
+	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/crypto"
 	"go.uber.org/zap"
@@ -52,7 +52,7 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 
 		err = creator.CreateUser(ctx, user)
 		if err != nil {
-			if errors.Is(err, storage.ErrLoginExists) {
+			if errors.Is(err, err_storage.ErrLoginExists) {
 				zap.L().Error("error while creating user", zap.Error(err), zap.String("login", user.Login))
 				w.WriteHeader(http.StatusConflict)
 				return
