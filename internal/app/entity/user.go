@@ -1,9 +1,6 @@
 package entity
 
-import (
-	"fmt"
-	"net/http"
-)
+import "github.com/avGenie/go-loyalty-system/internal/app/model"
 
 type UserID string
 
@@ -20,6 +17,14 @@ type UserIDCtx struct {
 	StatusCode int
 }
 
+func (u UserID) String() string {
+	return string(u)
+}
+
+func (u *UserID) Valid() bool {
+	return len(u.String()) != 0
+}
+
 func CreateUserIDCtx(userID UserID, code int) UserIDCtx {
 	return UserIDCtx{
 		UserID:     userID,
@@ -27,12 +32,10 @@ func CreateUserIDCtx(userID UserID, code int) UserIDCtx {
 	}
 }
 
-func ValidateCookieUserID(cookie *http.Cookie) (UserID, error) {
-	rawUserID := cookie.Value
-
-	if len(rawUserID) == 0 {
-		return "", fmt.Errorf("cookie of user id is empty")
+func CreateUserFromCreateRequest(userID UserID, request model.CreateUserRequest) User {
+	return User{
+		ID: userID,
+		Login: request.Login,
+		Password: request.Password,
 	}
-
-	return UserID(rawUserID), nil
 }

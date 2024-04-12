@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/pressly/goose/v3 v3.19.2
 	go.uber.org/zap v1.27.0
+	golang.org/x/crypto v0.18.0
 )
 
 require (

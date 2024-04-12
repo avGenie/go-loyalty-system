@@ -2,18 +2,12 @@ package http
 
 import (
 	"context"
-	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
-	"github.com/avGenie/go-loyalty-system/internal/app/usecase/token"
+	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
-)
-
-const (
-	bearerHeader = "Bearer"
 )
 
 func AuthMiddleware(next http.Handler) http.Handler {
@@ -28,7 +22,7 @@ func AuthMiddleware(next http.Handler) http.Handler {
 
 			userCtx = entity.CreateUserIDCtx(createUserID(), http.StatusUnauthorized)
 		} else {
-			userID, err := parseAuthHeader(authHeader[0])
+			userID, err := usecase.GetUserIDFromAuthHeader(authHeader[0])
 			if err != nil {
 				zap.L().Error("error while parsing auth header", zap.Error(err), zap.String("header", authHeader[0]))
 
@@ -50,22 +44,4 @@ func createUserID() entity.UserID {
 	userID := entity.UserID(uuid.String())
 
 	return userID
-}
-
-func parseAuthHeader(header string) (entity.UserID, error) {
-	headerParts := strings.Split(header, " ")
-	if len(headerParts) != 2 {
-		return entity.UserID(""), fmt.Errorf("auth header doesn't contain two parts")
-	}
-
-	if headerParts[0] != bearerHeader {
-		return entity.UserID(""), fmt.Errorf("first auth header part is invalid")
-	}
-
-	userID, err := token.GetUserID(headerParts[1])
-	if err != nil {
-		return entity.UserID(""), fmt.Errorf("error while getting user id from token: %w", err)
-	}
-
-	return userID, nil
 }
