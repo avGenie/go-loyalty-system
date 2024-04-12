@@ -7,6 +7,8 @@ import (
 )
 
 type Storage interface {
+	Close() error
+
 	CreateUser(ctx context.Context, user entity.User) error
 	GetUser(ctx context.Context, user entity.User) (entity.User, error)
 }

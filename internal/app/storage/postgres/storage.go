@@ -13,7 +13,9 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"go.uber.org/zap"
 )
 
 const (
@@ -46,8 +48,19 @@ func NewPostgresStorage(dbStorageConnect string) (*Postgres, error) {
 	}, nil
 }
 
+func (s *Postgres) Close() error {
+	err := s.db.Close()
+	if err != nil {
+		zap.L().Error("error while closing postgres storage", zap.Error(err))
+
+		return fmt.Errorf("couldn'r closed postgres db: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Postgres) CreateUser(ctx context.Context, user entity.User) error {
-	query := `INSERT INTO user VALUES(@userID, @login, @password)`
+	query := `INSERT INTO users VALUES(@userID, @login, @password)`
 	args := pgx.NamedArgs{
 		"userID":   user.ID.String(),
 		"login":    user.Login,

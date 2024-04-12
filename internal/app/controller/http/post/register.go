@@ -1,4 +1,4 @@
-package http
+package post
 
 import (
 	"context"
@@ -13,7 +13,6 @@ import (
 	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/crypto"
 	"go.uber.org/zap"
-	// "go.uber.org/zap"
 )
 
 type UserCreator interface {
