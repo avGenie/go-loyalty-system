@@ -5,12 +5,6 @@ import (
 	"net/http"
 )
 
-const (
-	UserIDKey = "user_id"
-)
-
-type UserIDCtxKey struct{}
-
 type UserID string
 
 type User struct {
@@ -19,9 +13,18 @@ type User struct {
 	Password string
 }
 
+type UserIDCtxKey struct{}
+
 type UserIDCtx struct {
 	UserID     UserID
 	StatusCode int
+}
+
+func CreateUserIDCtx(userID UserID, code int) UserIDCtx {
+	return UserIDCtx{
+		UserID:     userID,
+		StatusCode: code,
+	}
 }
 
 func ValidateCookieUserID(cookie *http.Cookie) (UserID, error) {
