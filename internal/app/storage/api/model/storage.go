@@ -7,8 +7,6 @@ import (
 )
 
 type Storage interface {
-	Ping(ctx context.Context) error
-
-	CreateUser(user entity.User) error
-	GetUser(user entity.User) (entity.User, error)
+	CreateUser(ctx context.Context, user entity.User) error
+	GetUser(ctx context.Context, user entity.User) (entity.User, error)
 }
