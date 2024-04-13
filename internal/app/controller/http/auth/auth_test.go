@@ -46,7 +46,7 @@ func TestCreateUser(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	s := mock.NewMockUserCreator(ctrl)
+	s := mock.NewMockUserAuthenticator(ctrl)
 
 	type want struct {
 		statusCode int
@@ -150,7 +150,8 @@ func TestCreateUser(t *testing.T) {
 				s.EXPECT().CreateUser(gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			handler := CreateUser(s)
+			authenticator := New(s)
+			handler := authenticator.CreateUser()
 			handler(writer, request)
 
 			res := writer.Result()

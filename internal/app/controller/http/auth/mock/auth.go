@@ -12,31 +12,31 @@ import (
 	gomock "github.com/golang/mock/gomock"
 )
 
-// MockUserCreator is a mock of UserCreator interface.
-type MockUserCreator struct {
+// MockUserAuthenticator is a mock of UserAuthenticator interface.
+type MockUserAuthenticator struct {
 	ctrl     *gomock.Controller
-	recorder *MockUserCreatorMockRecorder
+	recorder *MockUserAuthenticatorMockRecorder
 }
 
-// MockUserCreatorMockRecorder is the mock recorder for MockUserCreator.
-type MockUserCreatorMockRecorder struct {
-	mock *MockUserCreator
+// MockUserAuthenticatorMockRecorder is the mock recorder for MockUserAuthenticator.
+type MockUserAuthenticatorMockRecorder struct {
+	mock *MockUserAuthenticator
 }
 
-// NewMockUserCreator creates a new mock instance.
-func NewMockUserCreator(ctrl *gomock.Controller) *MockUserCreator {
-	mock := &MockUserCreator{ctrl: ctrl}
-	mock.recorder = &MockUserCreatorMockRecorder{mock}
+// NewMockUserAuthenticator creates a new mock instance.
+func NewMockUserAuthenticator(ctrl *gomock.Controller) *MockUserAuthenticator {
+	mock := &MockUserAuthenticator{ctrl: ctrl}
+	mock.recorder = &MockUserAuthenticatorMockRecorder{mock}
 	return mock
 }
 
 // EXPECT returns an object that allows the caller to indicate expected use.
-func (m *MockUserCreator) EXPECT() *MockUserCreatorMockRecorder {
+func (m *MockUserAuthenticator) EXPECT() *MockUserAuthenticatorMockRecorder {
 	return m.recorder
 }
 
 // CreateUser mocks base method.
-func (m *MockUserCreator) CreateUser(ctx context.Context, user entity.User) error {
+func (m *MockUserAuthenticator) CreateUser(ctx context.Context, user entity.User) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateUser", ctx, user)
 	ret0, _ := ret[0].(error)
@@ -44,7 +44,7 @@ func (m *MockUserCreator) CreateUser(ctx context.Context, user entity.User) erro
 }
 
 // CreateUser indicates an expected call of CreateUser.
-func (mr *MockUserCreatorMockRecorder) CreateUser(ctx, user interface{}) *gomock.Call {
+func (mr *MockUserAuthenticatorMockRecorder) CreateUser(ctx, user interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockUserCreator)(nil).CreateUser), ctx, user)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockUserAuthenticator)(nil).CreateUser), ctx, user)
 }

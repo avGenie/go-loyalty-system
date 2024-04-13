@@ -15,7 +15,9 @@ func CreateRouter(config config.Config, storage storage.Storage) *chi.Mux {
 	r.Use(logger.LoggerMiddleware)
 	r.Use(token.TokenParserMiddleware)
 
-	r.Post("/api/user/register", auth.CreateUser(storage))
+	authenticator := auth.New(storage)
+
+	r.Post("/api/user/register", authenticator.CreateUser())
 
 	return r
 }

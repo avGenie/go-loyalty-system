@@ -17,11 +17,21 @@ import (
 	"go.uber.org/zap"
 )
 
-type UserCreator interface {
+type UserAuthenticator interface {
 	CreateUser(ctx context.Context, user entity.User) error
 }
 
-func CreateUser(creator UserCreator) http.HandlerFunc {
+type AuthUser struct {
+	storage UserAuthenticator
+}
+
+func New(storage UserAuthenticator) AuthUser {
+	return AuthUser{
+		storage: storage,
+	}
+}
+
+func (a *AuthUser) CreateUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		user, err := createUserFromRequest(createUserID(), w, r)
 		if err != nil {
@@ -32,7 +42,7 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 		ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
 		defer cancel()
 
-		err = creator.CreateUser(ctx, user)
+		err = a.storage.CreateUser(ctx, user)
 		if err != nil {
 			if errors.Is(err, err_storage.ErrLoginExists) {
 				zap.L().Error("error while creating user", zap.Error(err), zap.String("login", user.Login))
