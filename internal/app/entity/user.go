@@ -32,10 +32,10 @@ func CreateUserIDCtx(userID UserID, code int) UserIDCtx {
 	}
 }
 
-func CreateUserFromCreateRequest(userID UserID, request model.CreateUserRequest) User {
+func CreateUserFromCreateRequest(userID UserID, request model.UserCredentialsRequest) User {
 	return User{
-		ID: userID,
-		Login: request.Login,
+		ID:       userID,
+		Login:    request.Login,
 		Password: request.Password,
 	}
 }

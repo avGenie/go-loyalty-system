@@ -1,4 +1,4 @@
-package post
+package auth
 
 import (
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"

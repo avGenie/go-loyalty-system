@@ -1,9 +1,10 @@
-package post
+package auth
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
@@ -22,31 +23,11 @@ type UserCreator interface {
 
 func CreateUser(creator UserCreator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var createRequest model.CreateUserRequest
-		err := json.NewDecoder(r.Body).Decode(&createRequest)
+		user, err := createUserFromRequest(createUserID(), w, r)
 		if err != nil {
-			zap.L().Error("error while parsing create user request while user creation", zap.Error(err))
-			w.WriteHeader(http.StatusBadRequest)
+			zap.L().Error("error while parsing user credentials while creating user", zap.Error(err))
 			return
 		}
-		defer r.Body.Close()
-
-		if !validator.ValidateCreateUserRequest(createRequest) {
-			zap.L().Error(ErrEmptyUserRequest, zap.String("login", createRequest.Login), zap.String("password", createRequest.Password))
-			http.Error(w, ErrEmptyUserRequest, http.StatusBadRequest)
-			return
-		}
-
-		userID := createUserID()
-		user := entity.CreateUserFromCreateRequest(userID, createRequest)
-
-		hashedPassword, err := crypto.HashPassword(user.Password)
-		if err != nil {
-			zap.L().Error("error while hashing password while user creation", zap.Error(err), zap.String("user_password", user.Password))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		user.Password = hashedPassword
 
 		ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
 		defer cancel()
@@ -64,7 +45,7 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 			return
 		}
 
-		token, err := usecase.SetUserIDToAuthHeaderFormat(userID)
+		token, err := usecase.SetUserIDToAuthHeaderFormat(user.ID)
 		if err != nil {
 			zap.L().Error("error while preparing auth header while creating user", zap.Error(err))
 			w.WriteHeader(http.StatusInternalServerError)
@@ -74,4 +55,30 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 		w.Header().Add(usecase.AuthHeader, token)
 		w.WriteHeader(http.StatusOK)
 	}
+}
+
+func createUserFromRequest(userID entity.UserID, w http.ResponseWriter, r *http.Request) (entity.User, error) {
+	var userCreds model.UserCredentialsRequest
+	err := json.NewDecoder(r.Body).Decode(&userCreds)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return entity.User{}, fmt.Errorf("error while decoding user credentials request: %w", err)
+	}
+	defer r.Body.Close()
+
+	if !validator.ValidateCreateUserRequest(userCreds) {
+		http.Error(w, ErrEmptyUserRequest, http.StatusBadRequest)
+		return entity.User{}, fmt.Errorf(ErrEmptyUserRequest)
+	}
+
+	user := entity.CreateUserFromCreateRequest(userID, userCreds)
+
+	hashedPassword, err := crypto.HashPassword(user.Password)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return entity.User{}, fmt.Errorf("error while hashing password: %w", err)
+	}
+	user.Password = hashedPassword
+
+	return user, nil
 }

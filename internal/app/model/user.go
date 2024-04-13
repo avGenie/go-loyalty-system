@@ -1,6 +1,6 @@
 package model
 
-type CreateUserRequest struct {
+type UserCredentialsRequest struct {
 	Login    string `json:"login"`
 	Password string `json:"password"`
 }
