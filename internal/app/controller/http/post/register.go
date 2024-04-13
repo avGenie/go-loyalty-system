@@ -12,6 +12,7 @@ import (
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/crypto"
+	"github.com/avGenie/go-loyalty-system/internal/app/validator"
 	"go.uber.org/zap"
 )
 
@@ -21,15 +22,8 @@ type UserCreator interface {
 
 func CreateUser(creator UserCreator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		userID, err := httputils.GetUserIDFromContext(r)
-		if err != nil {
-			zap.L().Error("error while parsing user id while user creation", zap.Error(err))
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		createRequest := model.CreateUserRequest{}
-		err = json.NewDecoder(r.Body).Decode(&createRequest)
+		var createRequest model.CreateUserRequest
+		err := json.NewDecoder(r.Body).Decode(&createRequest)
 		if err != nil {
 			zap.L().Error("error while parsing create user request while user creation", zap.Error(err))
 			w.WriteHeader(http.StatusBadRequest)
@@ -37,7 +31,15 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 		}
 		defer r.Body.Close()
 
+		if !validator.CreateUserRequest(createRequest) {
+			zap.L().Error(ErrEmptyUserRequest, zap.String("login", createRequest.Login), zap.String("password", createRequest.Password))
+			http.Error(w, ErrEmptyUserRequest, http.StatusBadRequest)
+			return
+		}
+
+		userID := createUserID()
 		user := entity.CreateUserFromCreateRequest(userID, createRequest)
+
 		hashedPassword, err := crypto.HashPassword(user.Password)
 		if err != nil {
 			zap.L().Error("error while hashing password while user creation", zap.Error(err), zap.String("user_password", user.Password))

@@ -24,6 +24,8 @@ func main() {
 	}
 	defer storage.Close()
 
+	zap.L().Info("start gophermart server")
+
 	err = http.ListenAndServe(config.NetAddr, router.CreateRouter(config, storage))
 	if err != nil && err != http.ErrServerClosed {
 		zap.L().Fatal("error while starting server", zap.Error(err))
