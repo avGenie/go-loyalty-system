@@ -48,3 +48,18 @@ func (mr *MockUserAuthenticatorMockRecorder) CreateUser(ctx, user interface{}) *
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUser", reflect.TypeOf((*MockUserAuthenticator)(nil).CreateUser), ctx, user)
 }
+
+// GetUser mocks base method.
+func (m *MockUserAuthenticator) GetUser(ctx context.Context, user entity.User) (entity.User, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUser", ctx, user)
+	ret0, _ := ret[0].(entity.User)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUser indicates an expected call of GetUser.
+func (mr *MockUserAuthenticatorMockRecorder) GetUser(ctx, user interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUser", reflect.TypeOf((*MockUserAuthenticator)(nil).GetUser), ctx, user)
+}

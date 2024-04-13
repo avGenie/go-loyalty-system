@@ -14,11 +14,19 @@ import (
 	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/crypto"
 	"github.com/avGenie/go-loyalty-system/internal/app/validator"
+	"github.com/google/uuid"
 	"go.uber.org/zap"
+)
+
+const (
+	ErrEmptyUserRequest = "wrong user credentials format: empty login or password"
+	ErrLoginNotExist    = "login doesn't exist"
+	ErrWrongPassword    = "wrong password"
 )
 
 type UserAuthenticator interface {
 	CreateUser(ctx context.Context, user entity.User) error
+	GetUser(ctx context.Context, user entity.User) (entity.User, error)
 }
 
 type AuthUser struct {
@@ -33,7 +41,7 @@ func New(storage UserAuthenticator) AuthUser {
 
 func (a *AuthUser) CreateUser() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, err := createUserFromRequest(createUserID(), w, r)
+		user, err := a.createUserFromRequestPassHashed(a.createUserID(), w, r)
 		if err != nil {
 			zap.L().Error("error while parsing user credentials while creating user", zap.Error(err))
 			return
@@ -55,19 +63,67 @@ func (a *AuthUser) CreateUser() http.HandlerFunc {
 			return
 		}
 
-		token, err := usecase.SetUserIDToAuthHeaderFormat(user.ID)
+		a.setUserIDToHeader(user.ID, w)
+	}
+}
+
+func (a *AuthUser) AuthenticateUser() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		inputUser, err := a.createUserFromRequest(entity.UserID(""), w, r)
 		if err != nil {
-			zap.L().Error("error while preparing auth header while creating user", zap.Error(err))
+			zap.L().Error("error while parsing user credentials while creating user", zap.Error(err))
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
+		defer cancel()
+
+		storageUser, err := a.storage.GetUser(ctx, inputUser)
+		if err != nil {
+			zap.L().Error("error while getting user while authentication request", zap.Error(err))
+
+			if errors.Is(err, err_storage.ErrLoginNotFound) {
+				http.Error(w, ErrLoginNotExist, http.StatusUnauthorized)
+				return
+			}
+
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		w.Header().Add(usecase.AuthHeader, token)
-		w.WriteHeader(http.StatusOK)
+		err = crypto.CheckPasswordHash(inputUser.Password, storageUser.Password)
+		if err != nil {
+			zap.L().Error("error while checking user password while authentication request", zap.Error(err))
+			if errors.Is(err, crypto.ErrWrongPassword) {
+				http.Error(w, ErrLoginNotExist, http.StatusUnauthorized)
+				return
+			}
+
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		a.setUserIDToHeader(storageUser.ID, w)
 	}
 }
 
-func createUserFromRequest(userID entity.UserID, w http.ResponseWriter, r *http.Request) (entity.User, error) {
+func (a *AuthUser) createUserFromRequestPassHashed(userID entity.UserID, w http.ResponseWriter, r *http.Request) (entity.User, error) {
+	user, err := a.createUserFromRequest(userID, w, r)
+	if err != nil {
+		return user, err
+	}
+
+	hashedPassword, err := crypto.HashPassword(user.Password)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return entity.User{}, fmt.Errorf("error while hashing password: %w", err)
+	}
+	user.Password = hashedPassword
+
+	return user, nil
+}
+
+func (a *AuthUser) createUserFromRequest(userID entity.UserID, w http.ResponseWriter, r *http.Request) (entity.User, error) {
 	var userCreds model.UserCredentialsRequest
 	err := json.NewDecoder(r.Body).Decode(&userCreds)
 	if err != nil {
@@ -83,12 +139,24 @@ func createUserFromRequest(userID entity.UserID, w http.ResponseWriter, r *http.
 
 	user := entity.CreateUserFromCreateRequest(userID, userCreds)
 
-	hashedPassword, err := crypto.HashPassword(user.Password)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return entity.User{}, fmt.Errorf("error while hashing password: %w", err)
-	}
-	user.Password = hashedPassword
-
 	return user, nil
+}
+
+func (a *AuthUser) setUserIDToHeader(userID entity.UserID, w http.ResponseWriter) {
+	token, err := usecase.SetUserIDToAuthHeaderFormat(userID)
+	if err != nil {
+		zap.L().Error("error while preparing auth header", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Add(usecase.AuthHeader, token)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (a *AuthUser) createUserID() entity.UserID {
+	uuid := uuid.New()
+	userID := entity.UserID(uuid.String())
+
+	return userID
 }
