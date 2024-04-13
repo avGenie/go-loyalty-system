@@ -31,7 +31,7 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 		}
 		defer r.Body.Close()
 
-		if !validator.CreateUserRequest(createRequest) {
+		if !validator.ValidateCreateUserRequest(createRequest) {
 			zap.L().Error(ErrEmptyUserRequest, zap.String("login", createRequest.Login), zap.String("password", createRequest.Password))
 			http.Error(w, ErrEmptyUserRequest, http.StatusBadRequest)
 			return
@@ -71,7 +71,7 @@ func CreateUser(creator UserCreator) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Add("Authorization", token)
+		w.Header().Add(usecase.AuthHeader, token)
 		w.WriteHeader(http.StatusOK)
 	}
 }

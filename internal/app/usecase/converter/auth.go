@@ -10,6 +10,8 @@ import (
 
 const (
 	bearerHeader = "Bearer"
+
+	AuthHeader = "Authorization"
 )
 
 func GetUserIDFromAuthHeader(header string) (entity.UserID, error) {
