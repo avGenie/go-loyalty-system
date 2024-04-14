@@ -6,16 +6,13 @@ import (
 	"time"
 
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
-	"github.com/golang-jwt/jwt/v4"
+	err_usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/errors"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
 	tokenTimeout = time.Hour * 3
 	secretKey    = "5269889d400bbf2dc66216f37b2839bb"
-)
-
-var (
-	ErrTokenNotValid = errors.New("token is not valid")
 )
 
 type Claims struct {
@@ -50,11 +47,15 @@ func GetUserID(tokenString string) (entity.UserID, error) {
 		})
 
 	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return entity.UserID(""), err_usecase.ErrTokenExpired
+		}
+
 		return entity.UserID(""), fmt.Errorf("error while getting user id from token: %w", err)
 	}
 
 	if !token.Valid {
-		return entity.UserID(""), ErrTokenNotValid
+		return entity.UserID(""), err_usecase.ErrTokenNotValid
 	}
 
 	return claims.UserID, nil

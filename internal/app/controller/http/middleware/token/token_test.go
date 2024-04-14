@@ -81,12 +81,20 @@ func TestInvalidTokenParserMiddleware(t *testing.T) {
 			hash: "Bearer",
 
 			want: want{
-				statusCode: http.StatusUnauthorized,
+				statusCode: http.StatusBadRequest,
 			},
 		},
 		{
 			name: "empty user id",
 			hash: "",
+
+			want: want{
+				statusCode: http.StatusBadRequest,
+			},
+		},
+		{
+			name: "expired token",
+			hash: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3MTMwNzgzNzgsIlVzZXJJRCI6IjBiOThiZjc5LTgzM2MtNDRlMC1iOTc5LTJkYWUxOWRkYTQ2YyJ9.hcbQwnBkgp9afxhhfnTK8O5AubPi4bMCZJJojQIjQkU",
 
 			want: want{
 				statusCode: http.StatusUnauthorized,
