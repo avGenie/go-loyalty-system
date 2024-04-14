@@ -81,7 +81,29 @@ func (s *Postgres) CreateUser(ctx context.Context, user entity.User) error {
 }
 
 func (s *Postgres) GetUser(ctx context.Context, user entity.User) (entity.User, error) {
-	return entity.User{}, nil
+	query := `SELECT id, password FROM users WHERE login=@login`
+	args := pgx.NamedArgs{
+		"login": user.Login,
+	}
+
+	row := s.db.QueryRowContext(ctx, query, args)
+	if row == nil {
+		return user, fmt.Errorf("error while postgres request preparation while getting user")
+	}
+
+	if row.Err() != nil {
+		return user, fmt.Errorf("error while postgres request execution while getting user: %w", row.Err())
+	}
+
+	err := row.Scan(&user.ID, &user.Password)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return user, err_api.ErrLoginNotFound
+		}
+		return user, fmt.Errorf("error while processing response row in postgres while getting user: %w", err)
+	}
+
+	return user, nil
 }
 
 func migration(db *sql.DB) error {
