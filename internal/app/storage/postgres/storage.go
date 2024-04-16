@@ -152,6 +152,10 @@ func (s *Postgres) UploadOrder(ctx context.Context, userID entity.UserID, orderN
 	return userID, nil
 }
 
+func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error) {
+	return entity.Orders{}, nil
+}
+
 func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entity.OrderNumber) (entity.UserID, error) {
 	query := `SELECT uo.user_id FROM orders AS o
 				JOIN users_orders AS uo

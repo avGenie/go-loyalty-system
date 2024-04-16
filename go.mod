@@ -10,6 +10,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgerrcode v0.0.0-20240316143900-6e2875d9b438
 	github.com/jackc/pgx/v5 v5.5.5
+	github.com/joeljunstrom/go-luhn v0.0.0-20190413165225-1e071b33b576
 	github.com/pressly/goose/v3 v3.19.2
 	github.com/stretchr/testify v1.8.1
 	go.uber.org/zap v1.27.0
@@ -17,7 +18,6 @@ require (
 )
 
 require (
-	github.com/ShiraazMoollatjie/goluhn v0.0.0-20211017190329-0d86158c056a // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect

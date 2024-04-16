@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS orders(
 );
 
 CREATE TABLE IF NOT EXISTS users_orders(
-	user_id uuid REFERENCES users ON DELETE CASCADE,
-	order_number VARCHAR(16) REFERENCES orders ON DELETE CASCADE
+	user_id uuid REFERENCES users(id) ON DELETE CASCADE,
+	order_number VARCHAR(16) REFERENCES orders(number) ON DELETE CASCADE
 );
 -- +goose StatementEnd
 

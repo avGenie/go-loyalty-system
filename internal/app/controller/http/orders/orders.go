@@ -2,12 +2,15 @@ package orders
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
+	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/validator"
 	"go.uber.org/zap"
 )
@@ -19,7 +22,6 @@ const (
 
 type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
-	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 }
 
 type Order struct {
@@ -48,7 +50,16 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 
 		storageUserID, err := p.uploadOrder(userID, orderNumber, w)
 		if err != nil {
-			zap.L().Error("error while uploading order number to storage while uploading order", zap.Error(err))
+			if errors.Is(err, err_storage.ErrOrderNumberExists) {
+				zap.L().Info(
+					"order number exists in storage while uploading one",
+					zap.String("user_id", userID.String()),
+					zap.String("order_user_id", storageUserID.String()),
+					zap.String("order_number", string(orderNumber)),
+				)
+			} else {
+				zap.L().Error("error while uploading order number to storage while uploading order", zap.Error(err))
+			}
 			return
 		}
 
@@ -62,6 +73,16 @@ func (p *Order) uploadOrder(userID entity.UserID, orderNumber entity.OrderNumber
 
 	storageUserID, err := p.storage.UploadOrder(ctx, userID, orderNumber)
 	if err != nil {
+		if errors.Is(err, err_storage.ErrOrderNumberExists) {
+			if userID == storageUserID {
+				w.WriteHeader(http.StatusOK)
+			} else {
+				w.WriteHeader(http.StatusConflict)
+			}
+
+			return storageUserID, err
+		}
+
 		w.WriteHeader(http.StatusInternalServerError)
 		return entity.UserID(""), err
 	}
@@ -91,11 +112,11 @@ func (p *Order) parseOrderNumber(w http.ResponseWriter, r *http.Request) (entity
 	}
 	defer r.Body.Close()
 
-	orderNumber := entity.OrderNumber(data)
-	err = validator.OrderNumberValidation(orderNumber)
-	if err != nil {
+	orderNumber := entity.OrderNumber(strings.TrimSuffix(string(data), "\n"))
+	isValid := validator.OrderNumberValidation(orderNumber)
+	if !isValid {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		return entity.OrderNumber(""), fmt.Errorf("error while validating order number = %s: %w", orderNumber, err)
+		return entity.OrderNumber(""), fmt.Errorf("order number = %s is invalid", orderNumber)
 	}
 
 	return orderNumber, nil
