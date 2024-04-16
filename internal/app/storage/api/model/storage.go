@@ -11,4 +11,6 @@ type Storage interface {
 
 	CreateUser(ctx context.Context, user entity.User) error
 	GetUser(ctx context.Context, user entity.User) (entity.User, error)
+
+	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 }

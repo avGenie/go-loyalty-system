@@ -106,6 +106,79 @@ func (s *Postgres) GetUser(ctx context.Context, user entity.User) (entity.User, 
 	return user, nil
 }
 
+func (s *Postgres) UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return entity.UserID(""), fmt.Errorf("failed to create transaction in postgres while uploading order: %w", err)
+	}
+	defer tx.Rollback()
+
+	queryInsertOrder := `INSERT INTO orders(number) VALUES(@number)`
+	args := pgx.NamedArgs{
+		"number": orderNumber,
+	}
+
+	_, err = s.db.ExecContext(ctx, queryInsertOrder, args)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgerrcode.IsIntegrityConstraintViolation(pgErr.Code) {
+			userID, err := s.getUserIDByOrderNumber(ctx, orderNumber)
+			if err != nil {
+				return entity.UserID(""), fmt.Errorf("error in postgres while uploading order: %w", err)
+			}
+
+			return userID, err_api.ErrOrderNumberExists
+		}
+
+		return entity.UserID(""), fmt.Errorf("unable to insert row to postgres while uploading order: %w", err)
+	}
+
+	queryInsertOrderUser := `INSERT INTO users_orders VALUES(@user_id, @order_number)`
+	args = pgx.NamedArgs{
+		"user_id":      userID,
+		"order_number": orderNumber,
+	}
+
+	_, err = s.db.ExecContext(ctx, queryInsertOrderUser, args)
+	if err != nil {
+		return entity.UserID(""), fmt.Errorf("unable to insert user id and order number to users_orders table in postgres while uploading order: %w", err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return entity.UserID(""), fmt.Errorf("failed to commit transaction in postgres while uploading order: %w", err)
+	}
+
+	return userID, nil
+}
+
+func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entity.OrderNumber) (entity.UserID, error) {
+	query := `SELECT uo.user_id FROM orders AS o
+				JOIN users_orders AS uo
+					ON o.number=uo.order_number
+			  WHERE o.number=$1`
+	row := s.db.QueryRowContext(ctx, query, orderNumber)
+	if row == nil {
+		return entity.UserID(""), fmt.Errorf("error while postgres request preparation while getting user id by order number")
+	}
+
+	if row.Err() != nil {
+		return entity.UserID(""), fmt.Errorf("error while postgres request execution while getting user id by order number: %w", row.Err())
+	}
+
+	var userID entity.UserID
+	err := row.Scan(&userID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return entity.UserID(""), err_api.ErrOrderNumberNotFound
+		}
+
+		return entity.UserID(""), fmt.Errorf("error while processing response row in postgres: %w", err)
+	}
+
+	return userID, nil
+}
+
 func migration(db *sql.DB) error {
 	goose.SetBaseFS(migrationFs)
 
