@@ -8,4 +8,5 @@ var (
 
 	ErrOrderNumberExists = errors.New("order with given number already exists in storage")
 	ErrOrderNumberNotFound = errors.New("order with given number doesn't exist in storage")
+	ErrOrderForUserNotFound = errors.New("order with given number doesn't exist for given user in storage")
 )

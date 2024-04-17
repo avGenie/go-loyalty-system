@@ -23,5 +23,7 @@ func CreateRouter(config config.Config, storage storage.Storage) *chi.Mux {
 	r.Post("/api/user/login", authenticator.AuthenticateUser())
 	r.Post("/api/user/orders", orders.UploadOrder())
 
+	r.Get("/api/user/orders", orders.GetUserOrders())
+
 	return r
 }

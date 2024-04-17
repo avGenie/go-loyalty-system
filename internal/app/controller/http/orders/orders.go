@@ -2,6 +2,7 @@ package orders
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
+	"github.com/avGenie/go-loyalty-system/internal/app/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/validator"
@@ -22,6 +24,7 @@ const (
 
 type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
+	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 }
 
 type Order struct {
@@ -65,6 +68,62 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 
 		p.validateUploadOrderResult(userID, storageUserID, w)
 	}
+}
+
+func (p *Order) GetUserOrders() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := p.parseUserID(w, r)
+		if err != nil {
+			zap.L().Error("error while parsing user id while uploading order", zap.Error(err))
+			return
+		}
+
+		orders, err := p.getUserOrders(userID, w)
+		if err != nil {
+			zap.L().Error("error while getting user orders", zap.Error(err))
+			return
+		}
+
+		p.sendUserOrders(orders, w)
+	}
+}
+
+func (p *Order) getUserOrders(userID entity.UserID, w http.ResponseWriter) (entity.Orders, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
+	defer cancel()
+
+	orders, err := p.storage.GetUserOrders(ctx, userID)
+	if err != nil {
+		if errors.Is(err, err_storage.ErrOrderForUserNotFound) {
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		return entity.Orders{}, fmt.Errorf("error while getting user orders: %w", err)
+	}
+
+	return orders, nil
+}
+
+func (p *Order) sendUserOrders(orders entity.Orders, w http.ResponseWriter) {
+	outOrders, err := converter.ConvertStorageOrdersToOutputUploadedOrders(orders)
+	if err != nil {
+		zap.L().Error("error while converting user orders to output model", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	out, err := json.Marshal(outOrders)
+	if err != nil {
+		zap.L().Error("error while marshalling user orders", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
 }
 
 func (p *Order) uploadOrder(userID entity.UserID, orderNumber entity.OrderNumber, w http.ResponseWriter) (entity.UserID, error) {
