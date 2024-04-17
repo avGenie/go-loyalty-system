@@ -9,7 +9,7 @@ import (
 )
 
 func ConvertStorageOrdersToOutputUploadedOrders(orders entity.Orders) (model.UploadedOrders, error) {
-	uploadedOrders := make(model.UploadedOrders, len(orders))
+	uploadedOrders := make(model.UploadedOrders, 0, len(orders))
 
 	for _, order := range orders {
 		timeCreated, err := time.Parse(time.RFC3339, order.DateCreated)

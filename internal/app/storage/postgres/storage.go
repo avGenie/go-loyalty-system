@@ -153,7 +153,32 @@ func (s *Postgres) UploadOrder(ctx context.Context, userID entity.UserID, orderN
 }
 
 func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error) {
-	return entity.Orders{}, nil
+	query := `SELECT o.number, o.status, o.accrual, o.date_created FROM orders AS o
+				JOIN users_orders AS uo
+					ON o.number=uo.order_number
+			  WHERE uo.user_id=$1`
+
+	rows, err := s.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("error in postgres request execution while getting user orders: %w", err)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("error in postgres requested rows while getting user orders: %w", rows.Err())
+	}
+
+	var orders entity.Orders
+	for rows.Next() {
+		var order entity.Order
+		err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.DateCreated)
+		if err != nil {
+			return nil, fmt.Errorf("error while parsing row while getting users order from postgres: %w", err)
+		}
+
+		orders = append(orders, order)
+	}
+
+	return orders, nil
 }
 
 func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entity.OrderNumber) (entity.UserID, error) {
