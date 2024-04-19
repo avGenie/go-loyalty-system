@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
@@ -171,7 +170,7 @@ func (p *Order) parseOrderNumber(w http.ResponseWriter, r *http.Request) (entity
 	}
 	defer r.Body.Close()
 
-	orderNumber := entity.OrderNumber(strings.TrimSuffix(string(data), "\n"))
+	orderNumber := entity.OrderNumber(string(data))
 	isValid := validator.OrderNumberValidation(orderNumber)
 	if !isValid {
 		w.WriteHeader(http.StatusUnprocessableEntity)
