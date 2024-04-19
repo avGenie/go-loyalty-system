@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/golang-module/carbon/v2"
+
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/model"
 )
@@ -21,7 +23,7 @@ func ConvertStorageOrdersToOutputUploadedOrders(orders entity.Orders) (model.Upl
 			Number:     string(order.Number),
 			Status:     order.Status,
 			Accrual:    order.Accrual,
-			UploadTime: timeCreated.String(),
+			UploadTime: carbon.Parse(timeCreated.String()).ToRfc3339String(),
 		}
 		uploadedOrders = append(uploadedOrders, uploadedOrder)
 	}
