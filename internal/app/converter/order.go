@@ -30,3 +30,11 @@ func ConvertStorageOrdersToOutputUploadedOrders(orders entity.Orders) (model.Upl
 
 	return uploadedOrders, nil
 }
+
+func ConvertAccrualResponseToOrder(response model.AccrualResponse) entity.Order {
+	return entity.Order{
+		Number: entity.OrderNumber(response.Number),
+		Status: response.Status,
+		Accrual: response.Accrual,
+	}
+}
