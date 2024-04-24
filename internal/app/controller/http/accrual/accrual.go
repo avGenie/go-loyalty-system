@@ -17,14 +17,14 @@ import (
 )
 
 const (
-	accrualGetOrder = `/api/orders/`
+	accrualGetOrder   = `/api/orders/`
 	retryAfterDefault = 60
 )
 
 var (
 	ErrAccrualAddressInvalid = errors.New("accrual address invalid")
-	ErrOrderNotRegister = errors.New("order is not register in accrual system")
-	ErrRequestsExceeded = errors.New("number of requests to accrual has been exceeded")
+	ErrOrderNotRegister      = errors.New("order is not register in accrual system")
+	ErrRequestsExceeded      = errors.New("number of requests to accrual has been exceeded")
 )
 
 type Accrual struct {
@@ -32,11 +32,10 @@ type Accrual struct {
 
 	requestAddress string
 	wg             sync.WaitGroup
-	inputChan      <-chan string
-	outputChan     chan<- entity.Order
+	connector      AccrualConnector
 }
 
-func New(inputChan chan string, outputChan chan entity.Order, config config.Config) (*Accrual, error) {
+func New(connector AccrualConnector, config config.Config) (*Accrual, error) {
 	if len(config.AccrualAddr) == 0 {
 		return nil, ErrAccrualAddressInvalid
 	}
@@ -51,8 +50,7 @@ func New(inputChan chan string, outputChan chan entity.Order, config config.Conf
 		client:         client,
 		requestAddress: requestAddress,
 		wg:             sync.WaitGroup{},
-		inputChan:      inputChan,
-		outputChan:     outputChan,
+		connector:      connector,
 	}
 
 	instance.wg.Add(1)
@@ -65,7 +63,12 @@ func New(inputChan chan string, outputChan chan entity.Order, config config.Conf
 }
 
 func (a *Accrual) getRequest() {
-	for number := range a.inputChan {
+	for {
+		number, ok := a.connector.GetInput()
+		if !ok {
+			zap.L().Error("input channel has been closed for accrual service")
+			return
+		}
 
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, number), nil)
 		if err != nil {
@@ -82,16 +85,18 @@ func (a *Accrual) getRequest() {
 		if err != nil {
 			if errors.Is(err, ErrOrderNotRegister) {
 				continue
-			} else if errors.Is(err, ErrRequestsExceeded) {
-				zap.L().Info("accrual service exceeded", zap.String("retry_after", accrualResp.RetryAfter.String()))
-				<- time.After(accrualResp.RetryAfter)
+			} else if !errors.Is(err, ErrRequestsExceeded) {
+				zap.L().Error("error while processing accrual response", zap.Error(err))
+				continue
 			}
 
-			zap.L().Error("error while processing accrual response", zap.Error(err))
+			zap.L().Info("accrual service exceeded", zap.String("retry_after", accrualResp.RetryAfter.String()))
+			a.connector.SetOutput(entity.CreatePausedAccrualOrder())
+			<-time.After(accrualResp.RetryAfter)
 			continue
 		}
 
-		a.outputChan <- accrualResp.Order
+		a.connector.SetOutput(entity.CreateProcessingAccrualOrder(accrualResp.Order))
 	}
 }
 
@@ -108,7 +113,7 @@ func (a *Accrual) processAccrualResponse(res *http.Response) (entity.AccrualProc
 
 		return entity.AccrualProcessingResponse{
 			RetryAfter: time.Duration(retryTime) * time.Second,
-		},  ErrRequestsExceeded
+		}, ErrRequestsExceeded
 	}
 
 	var response model.AccrualResponse

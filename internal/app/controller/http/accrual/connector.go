@@ -4,13 +4,13 @@ import "github.com/avGenie/go-loyalty-system/internal/app/entity"
 
 type AccrualConnector struct {
 	inputChan      chan string
-	outputChan     chan entity.Order
+	outputChan     chan entity.AccrualOrder
 }
 
 func NewConnector() *AccrualConnector {
 	return &AccrualConnector{
 		inputChan: make(chan string),
-		outputChan: make(chan entity.Order),
+		outputChan: make(chan entity.AccrualOrder),
 	}
 }
 
@@ -28,11 +28,11 @@ func (c *AccrualConnector) CloseInput() {
 	close(c.inputChan)
 }
 
-func (c *AccrualConnector) SetOutput(order entity.Order) {
+func (c *AccrualConnector) SetOutput(order entity.AccrualOrder) {
 	c.outputChan <- order
 }
 
-func (c *AccrualConnector) GetOutput() (entity.Order, bool) {
+func (c *AccrualConnector) GetOutput() (entity.AccrualOrder, bool) {
 	val, ok := <- c.outputChan
 
 	return val, ok
