@@ -32,10 +32,10 @@ type Accrual struct {
 
 	requestAddress string
 	wg             sync.WaitGroup
-	connector      AccrualConnector
+	connector      *AccrualConnector
 }
 
-func New(connector AccrualConnector, config config.Config) (*Accrual, error) {
+func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
 	if len(config.AccrualAddr) == 0 {
 		return nil, ErrAccrualAddressInvalid
 	}

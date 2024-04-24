@@ -11,6 +11,7 @@ import (
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
+	"github.com/avGenie/go-loyalty-system/internal/app/model"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/validator"
 	"go.uber.org/zap"
@@ -26,14 +27,24 @@ type OrderProcessor interface {
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 }
 
-type Order struct {
-	storage OrderProcessor
+type AccrualOrderConnector interface {
+	SetInput(number entity.OrderNumber)
+	CloseInput()
+	GetOutput() (entity.AccrualOrder, bool)
 }
 
-func New(storage OrderProcessor) Order {
-	return Order{
-		storage: storage,
+type Order struct {
+	storage          OrderProcessor
+	accrualConnector AccrualOrderConnector
+}
+
+func New(storage OrderProcessor, accrualConnector AccrualOrderConnector) Order {
+	instance := Order{
+		storage:          storage,
+		accrualConnector: accrualConnector,
 	}
+
+	return instance
 }
 
 func (p *Order) UploadOrder() http.HandlerFunc {
@@ -65,6 +76,8 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			return
 		}
 
+		p.accrualConnector.SetInput(orderNumber)
+
 		p.validateUploadOrderResult(userID, storageUserID, w)
 	}
 }
@@ -83,7 +96,17 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 			return
 		}
 
+		p.updateAccrualState(orders)
+
 		p.sendUserOrders(orders, w)
+	}
+}
+
+func (p *Order) updateAccrualState(orders entity.Orders) {
+	for _, order := range orders {
+		if order.Status == string(model.StatusNewOrder) || order.Status == string(model.StatusProcessingOrder) {
+			p.accrualConnector.SetInput(order.Number)
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/avGenie/go-loyalty-system/internal/app/config"
+	"github.com/avGenie/go-loyalty-system/internal/app/controller/http/accrual"
 	"github.com/avGenie/go-loyalty-system/internal/app/controller/http/auth"
 	"github.com/avGenie/go-loyalty-system/internal/app/controller/http/middleware/logger"
 	"github.com/avGenie/go-loyalty-system/internal/app/controller/http/middleware/token"
@@ -23,18 +24,25 @@ type HTTPServer struct {
 	config  config.Config
 	storage storage.Storage
 
+	accrualClient *accrual.Accrual
 	authenticator auth.AuthUser
 	orders        orders.Order
 }
 
 func New(config config.Config, storage storage.Storage) *HTTPServer {
+	accrualConnector := accrual.NewConnector()
+	accrualClient, err := accrual.New(accrualConnector, config)
+	if err != nil {
+		zap.L().Fatal("error while creating accrual client", zap.Error(err))
+	}
+
 	authenticator := auth.New(storage)
-	order := orders.New(storage)
+	order := orders.New(storage, accrualConnector)
 
 	mux := createMux(authenticator, order)
 
 	server := &http.Server{
-		Addr: config.NetAddr,
+		Addr:    config.NetAddr,
 		Handler: mux,
 	}
 
@@ -42,6 +50,7 @@ func New(config config.Config, storage storage.Storage) *HTTPServer {
 		server:        server,
 		config:        config,
 		storage:       storage,
+		accrualClient: accrualClient,
 		authenticator: authenticator,
 		orders:        order,
 	}

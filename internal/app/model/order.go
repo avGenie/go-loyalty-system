@@ -1,5 +1,14 @@
 package model
 
+type OrderStatus string
+
+const (
+	StatusNewOrder        OrderStatus = `NEW`
+	StatusProcessingOrder OrderStatus = `PROCESSING`
+	StatusInvalidOrder    OrderStatus = `INVALID`
+	StatusProcessedOrder  OrderStatus = `PROCESSED`
+)
+
 type UploadedOrders []UploadedOrder
 
 type UploadedOrder struct {
