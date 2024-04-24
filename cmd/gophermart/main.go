@@ -1,12 +1,10 @@
 package main
 
 import (
-	"net/http"
-
 	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	"github.com/avGenie/go-loyalty-system/internal/app/logger"
-	router "github.com/avGenie/go-loyalty-system/internal/app/controller/http/router"
 	storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api"
+	http_server "github.com/avGenie/go-loyalty-system/internal/app/controller/http/server"
 	"go.uber.org/zap"
 )
 
@@ -26,8 +24,6 @@ func main() {
 
 	zap.L().Info("start gophermart server")
 
-	err = http.ListenAndServe(config.NetAddr, router.CreateRouter(config, storage))
-	if err != nil && err != http.ErrServerClosed {
-		zap.L().Fatal("error while starting server", zap.Error(err))
-	}
+	server := http_server.New(config, storage)
+	server.StartHTTPServer()
 }
