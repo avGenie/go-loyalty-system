@@ -215,6 +215,8 @@ func TestUploadOrder(t *testing.T) {
 				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(0)
 			}
 
+			accrualConnector.EXPECT().GetOutput().AnyTimes()
+
 			orders := New(orderProcessor, accrualConnector)
 			handler := orders.UploadOrder()
 			handler(writer, request)
@@ -426,6 +428,8 @@ func TestGetUserOrders(t *testing.T) {
 			} else {
 				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(test.accrualCount)
 			}
+
+			accrualConnector.EXPECT().GetOutput().AnyTimes()
 
 			orders := New(orderProcessor, accrualConnector)
 			handler := orders.GetUserOrders()

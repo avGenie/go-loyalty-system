@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
@@ -25,6 +26,7 @@ const (
 type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
+	UpdateOrders(ctx context.Context, orders entity.Orders) error
 }
 
 type AccrualOrderConnector interface {
@@ -36,13 +38,21 @@ type AccrualOrderConnector interface {
 type Order struct {
 	storage          OrderProcessor
 	accrualConnector AccrualOrderConnector
+	wg               *sync.WaitGroup
 }
 
 func New(storage OrderProcessor, accrualConnector AccrualOrderConnector) Order {
 	instance := Order{
 		storage:          storage,
 		accrualConnector: accrualConnector,
+		wg:               &sync.WaitGroup{},
 	}
+
+	instance.wg.Add(1)
+	go func() {
+		instance.wg.Done()
+		instance.updateOrders()
+	}()
 
 	return instance
 }
@@ -99,6 +109,44 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 		p.updateAccrualState(orders)
 
 		p.sendUserOrders(orders, w)
+	}
+}
+
+func (p *Order) updateOrders() {
+	orders := make(entity.Orders, 0, 10)
+	for {
+		accrualOrder, ok := p.accrualConnector.GetOutput()
+		if !ok {
+			zap.L().Info("output channel from accrual connector has been closed")
+			if len(orders) != 0 {
+				p.updateOrdersStorage(orders)
+			}
+			return
+		}
+
+		if entity.StatusPause == accrualOrder.Status {
+			if len(orders) != 0 {
+				p.updateOrdersStorage(orders)
+				orders = orders[:0]
+			}
+			continue
+		}
+
+		orders = append(orders, accrualOrder.Order)
+		if len(orders) == cap(orders) {
+			p.updateOrdersStorage(orders)
+			orders = orders[:0]
+		}
+	}
+}
+
+func (p *Order) updateOrdersStorage(orders entity.Orders) {
+	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
+	defer close()
+
+	err := p.storage.UpdateOrders(ctx, orders)
+	if err != nil {
+		zap.L().Error("error while updating orders", zap.Error(err))
 	}
 }
 

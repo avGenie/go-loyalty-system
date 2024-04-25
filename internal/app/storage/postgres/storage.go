@@ -181,6 +181,45 @@ func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (ent
 	return orders, nil
 }
 
+func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.Orders) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction while updating orders in postgres: %w", err)
+	}
+	defer tx.Rollback()
+
+	selectQuery := `SELECT * FROM orders WHERE number=$1`
+	stmtSelect, err := tx.PrepareContext(ctx, selectQuery)
+	if err != nil {
+		return fmt.Errorf("failed to prepare select query while updating orders in postgres: %w", err)
+	}
+
+	updateQuery := `UPDATE orders SET status=$1 AND accrual=$2 WHERE number=$3`
+	stmtUpdate, err := tx.PrepareContext(ctx, updateQuery)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update query while updating orders in postgres: %w", err)
+	}
+
+	for _, order := range orders {
+		_, err = stmtSelect.ExecContext(ctx, order.Number)
+		if err != nil {
+			return fmt.Errorf("failed to select query while updating orders in postgres: %w", err)
+		}
+
+		_, err = stmtUpdate.ExecContext(ctx, order.Status, order.Accrual, order.Number)
+		if err != nil {
+			return fmt.Errorf("failed to update query while updating orders in postgres: %w", err)
+		}
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to commit transaction while updating orders in postgres: %w", err)
+	}
+
+	return nil
+}
+
 func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entity.OrderNumber) (entity.UserID, error) {
 	query := `SELECT uo.user_id FROM orders AS o
 				JOIN users_orders AS uo
