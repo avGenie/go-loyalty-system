@@ -33,6 +33,7 @@ type Accrual struct {
 	requestAddress string
 	wg             sync.WaitGroup
 	connector      *AccrualConnector
+	storage        *AccrualStorage
 }
 
 func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
@@ -51,12 +52,18 @@ func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
 		requestAddress: requestAddress,
 		wg:             sync.WaitGroup{},
 		connector:      connector,
+		storage:        NewStorage(),
 	}
 
-	instance.wg.Add(1)
+	instance.wg.Add(2)
 	go func() {
 		defer instance.wg.Done()
 		instance.getRequest()
+	}()
+
+	go func() {
+		defer instance.wg.Done()
+		instance.processRequests()
 	}()
 
 	return instance, nil
@@ -68,6 +75,25 @@ func (a *Accrual) getRequest() {
 		if !ok {
 			zap.L().Error("input channel has been closed for accrual service")
 			return
+		}
+
+		err := a.storage.Add(number)
+		if err != nil {
+			if !errors.Is(err, ErrEmptyStorageSpace) {
+				zap.L().Error("error while pushing number to accrual storage")
+			}
+		}
+	}
+}
+
+func (a *Accrual) processRequests() {
+	for {
+		number, err := a.storage.Get()
+		if err != nil {
+			if !errors.Is(err, ErrEmptyStorage) {
+				zap.L().Error("error while getting number from storage for accrual system")
+			}
+			continue
 		}
 
 		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, number), nil)
