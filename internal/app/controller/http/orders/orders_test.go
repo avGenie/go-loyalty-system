@@ -32,29 +32,32 @@ func TestUploadOrder(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	s := mock.NewMockOrderProcessor(ctrl)
+	orderProcessor := mock.NewMockOrderProcessor(ctrl)
+	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	type want struct {
 		statusCode int
 		outputBody string
 	}
 	tests := []struct {
-		name          string
-		body          Reader
-		uploadErr     error
-		isUploadUser  bool
-		isContext     bool
-		userIDCtx     entity.UserIDCtx
-		storageUserID entity.UserID
+		name            string
+		body            Reader
+		uploadErr       error
+		isUploadUser    bool
+		isUpdateAccrual bool
+		isContext       bool
+		userIDCtx       entity.UserIDCtx
+		storageUserID   entity.UserID
 
 		want want
 	}{
 		{
-			name:         "new order for user",
-			body:         strings.NewReader("735584316112"),
-			uploadErr:    nil,
-			isUploadUser: true,
-			isContext:    true,
+			name:            "new order for user",
+			body:            strings.NewReader("735584316112"),
+			uploadErr:       nil,
+			isUploadUser:    true,
+			isUpdateAccrual: true,
+			isContext:       true,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
 				StatusCode: http.StatusOK,
@@ -67,7 +70,7 @@ func TestUploadOrder(t *testing.T) {
 		{
 			name:          "exist order for user",
 			body:          strings.NewReader("735584316112"),
-			uploadErr:     nil,
+			uploadErr:     err_storage.ErrOrderNumberExists,
 			isUploadUser:  true,
 			isContext:     true,
 			storageUserID: "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
@@ -83,7 +86,7 @@ func TestUploadOrder(t *testing.T) {
 		{
 			name:          "exist order for another user",
 			body:          strings.NewReader("735584316112"),
-			uploadErr:     nil,
+			uploadErr:     err_storage.ErrOrderNumberExists,
 			isUploadUser:  true,
 			isContext:     true,
 			storageUserID: "6f28a678-7eba-4a4e-966c-7fedc6420df7",
@@ -201,12 +204,18 @@ func TestUploadOrder(t *testing.T) {
 			}
 
 			if test.isUploadUser {
-				s.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(test.storageUserID, test.uploadErr)
+				orderProcessor.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).Return(test.storageUserID, test.uploadErr)
 			} else {
-				s.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+				orderProcessor.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			orders := New(s)
+			if test.isUpdateAccrual {
+				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(1)
+			} else {
+				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(0)
+			}
+
+			orders := New(orderProcessor, accrualConnector)
 			handler := orders.UploadOrder()
 			handler(writer, request)
 
@@ -230,7 +239,8 @@ func TestGetUserOrders(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
-	s := mock.NewMockOrderProcessor(ctrl)
+	orderProcessor := mock.NewMockOrderProcessor(ctrl)
+	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	outputCorrect := strings.TrimSpace(`
 	[
@@ -280,23 +290,27 @@ func TestGetUserOrders(t *testing.T) {
 		outputBody string
 	}
 	tests := []struct {
-		name        string
-		storageErr  error
-		isGetOrders bool
-		isContext   bool
-		isJSONBody  bool
-		dbOutput    entity.Orders
-		userIDCtx   entity.UserIDCtx
+		name            string
+		storageErr      error
+		isGetOrders     bool
+		isUpdateAccrual bool
+		isContext       bool
+		isJSONBody      bool
+		accrualCount    int
+		dbOutput        entity.Orders
+		userIDCtx       entity.UserIDCtx
 
 		want want
 	}{
 		{
-			name:        "correct input data",
-			storageErr:  nil,
-			isGetOrders: true,
-			isContext:   true,
-			isJSONBody:  true,
-			dbOutput:    correctDBOutput,
+			name:            "correct input data",
+			storageErr:      nil,
+			isGetOrders:     true,
+			isUpdateAccrual: true,
+			isContext:       true,
+			isJSONBody:      true,
+			accrualCount:    3,
+			dbOutput:        correctDBOutput,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
 				StatusCode: http.StatusOK,
@@ -402,12 +416,18 @@ func TestGetUserOrders(t *testing.T) {
 			}
 
 			if test.isGetOrders {
-				s.EXPECT().GetUserOrders(gomock.Any(), gomock.Any()).Return(test.dbOutput, test.storageErr)
+				orderProcessor.EXPECT().GetUserOrders(gomock.Any(), gomock.Any()).Return(test.dbOutput, test.storageErr)
 			} else {
-				s.EXPECT().GetUserOrders(gomock.Any(), gomock.Any()).Times(0)
+				orderProcessor.EXPECT().GetUserOrders(gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			orders := New(s)
+			if test.isUpdateAccrual {
+				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(test.accrualCount)
+			} else {
+				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(test.accrualCount)
+			}
+
+			orders := New(orderProcessor, accrualConnector)
 			handler := orders.GetUserOrders()
 			handler(writer, request)
 

@@ -64,3 +64,65 @@ func (mr *MockOrderProcessorMockRecorder) UploadOrder(ctx, userID, orderNumber i
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UploadOrder", reflect.TypeOf((*MockOrderProcessor)(nil).UploadOrder), ctx, userID, orderNumber)
 }
+
+// MockAccrualOrderConnector is a mock of AccrualOrderConnector interface.
+type MockAccrualOrderConnector struct {
+	ctrl     *gomock.Controller
+	recorder *MockAccrualOrderConnectorMockRecorder
+}
+
+// MockAccrualOrderConnectorMockRecorder is the mock recorder for MockAccrualOrderConnector.
+type MockAccrualOrderConnectorMockRecorder struct {
+	mock *MockAccrualOrderConnector
+}
+
+// NewMockAccrualOrderConnector creates a new mock instance.
+func NewMockAccrualOrderConnector(ctrl *gomock.Controller) *MockAccrualOrderConnector {
+	mock := &MockAccrualOrderConnector{ctrl: ctrl}
+	mock.recorder = &MockAccrualOrderConnectorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockAccrualOrderConnector) EXPECT() *MockAccrualOrderConnectorMockRecorder {
+	return m.recorder
+}
+
+// CloseInput mocks base method.
+func (m *MockAccrualOrderConnector) CloseInput() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CloseInput")
+}
+
+// CloseInput indicates an expected call of CloseInput.
+func (mr *MockAccrualOrderConnectorMockRecorder) CloseInput() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CloseInput", reflect.TypeOf((*MockAccrualOrderConnector)(nil).CloseInput))
+}
+
+// GetOutput mocks base method.
+func (m *MockAccrualOrderConnector) GetOutput() (entity.AccrualOrder, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOutput")
+	ret0, _ := ret[0].(entity.AccrualOrder)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// GetOutput indicates an expected call of GetOutput.
+func (mr *MockAccrualOrderConnectorMockRecorder) GetOutput() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOutput", reflect.TypeOf((*MockAccrualOrderConnector)(nil).GetOutput))
+}
+
+// SetInput mocks base method.
+func (m *MockAccrualOrderConnector) SetInput(number entity.OrderNumber) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "SetInput", number)
+}
+
+// SetInput indicates an expected call of SetInput.
+func (mr *MockAccrualOrderConnectorMockRecorder) SetInput(number interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetInput", reflect.TypeOf((*MockAccrualOrderConnector)(nil).SetInput), number)
+}
