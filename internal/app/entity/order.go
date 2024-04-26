@@ -7,6 +7,6 @@ type OrderNumber string
 type Order struct {
 	Number      OrderNumber
 	Status      string
-	Accrual     int
+	Accrual     float64
 	DateCreated string
 }
