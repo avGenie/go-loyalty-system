@@ -121,7 +121,7 @@ func (a *Accrual) processRequests() {
 
 			zap.L().Debug("accrual process request", zap.String("number", string(number)))
 
-			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s%s", a.requestAddress, number), nil)
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, number), nil)
 			if err != nil {
 				zap.L().Error("cannot create request for accrual service", zap.Error(err))
 				continue
