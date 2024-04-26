@@ -27,7 +27,8 @@ const (
 const (
 	flushBufLen = 10
 
-	tickerTime = 5 * time.Second
+	tickerTime  = 5 * time.Second
+	stopTimeout = 5 * time.Second
 )
 
 type OrderProcessor interface {
@@ -121,6 +122,24 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 	}
 }
 
+func (p *Order) Stop() {
+	ready := make(chan bool)
+	go func() {
+		defer close(ready)
+		p.wg.Wait()
+	}()
+
+	// устанавливаем таймаут на ожидание сброса в БД последней порции
+	select {
+	case <-time.After(stopTimeout):
+		zap.L().Error("timeout stopped while sending data for update orders to the storage while shutting down")
+		return
+	case <-ready:
+		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
+		return
+	}
+}
+
 func (p *Order) updateOrders() {
 	ticker := time.NewTicker(tickerTime)
 	orders := make(entity.Orders, 0, flushBufLen)
@@ -134,29 +153,30 @@ func (p *Order) updateOrders() {
 
 	for {
 		select {
-		case <- ticker.C:
+		case <-ticker.C:
 			flushOrders()
 		default:
 			accrualOrder, ok := p.accrualConnector.GetOutput()
 			if !ok {
 				zap.L().Info("output channel from accrual connector has been closed")
 				flushOrders()
+				p.accrualConnector.CloseInput()
 				return
 			}
-	
+
 			if entity.StatusPause == accrualOrder.Status {
 				zap.L().Debug("accrual paused")
 				flushOrders()
 				continue
 			}
-	
+
 			if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
 				zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
 				continue
 			}
-	
+
 			zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
-	
+
 			orders = append(orders, accrualOrder.Order)
 			if len(orders) == cap(orders) {
 				flushOrders()

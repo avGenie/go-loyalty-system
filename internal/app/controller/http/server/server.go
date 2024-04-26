@@ -76,6 +76,14 @@ func (s *HTTPServer) StartHTTPServer() {
 	if err != nil {
 		zap.L().Error("error while shutting down server", zap.Error(err))
 	}
+	s.stop()
+}
+
+func (s *HTTPServer) stop() {
+	s.accrualClient.Stop()
+	s.orders.Stop()
+
+	zap.L().Info("server has been stopped")
 }
 
 func createMux(authenticator auth.AuthUser, orders orders.Order) *chi.Mux {

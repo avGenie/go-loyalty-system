@@ -34,6 +34,7 @@ type Accrual struct {
 	wg             sync.WaitGroup
 	connector      *AccrualConnector
 	storage        *AccrualStorage
+	done           chan struct{}
 }
 
 func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
@@ -53,6 +54,7 @@ func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
 		wg:             sync.WaitGroup{},
 		connector:      connector,
 		storage:        NewStorage(),
+		done:           make(chan struct{}),
 	}
 
 	instance.wg.Add(2)
@@ -69,11 +71,25 @@ func New(connector *AccrualConnector, config config.Config) (*Accrual, error) {
 	return instance, nil
 }
 
+func (a *Accrual) Stop() {
+	sync.OnceFunc(func() {
+		close(a.done)
+	})()
+
+	ready := make(chan bool)
+	go func() {
+		defer close(ready)
+		a.wg.Wait()
+	}()
+
+	zap.L().Info("accrual service has been stopped")
+}
+
 func (a *Accrual) getRequest() {
 	for {
 		number, ok := a.connector.GetInput()
 		if !ok {
-			zap.L().Error("input channel has been closed for accrual service")
+			zap.L().Info("input channel has been closed for accrual service")
 			return
 		}
 
@@ -90,43 +106,50 @@ func (a *Accrual) getRequest() {
 
 func (a *Accrual) processRequests() {
 	for {
-		number, err := a.storage.Get()
-		if err != nil {
-			if !errors.Is(err, ErrEmptyStorage) {
-				zap.L().Error("error while getting number from storage for accrual system")
-			}
-			continue
-		}
-
-		zap.L().Debug("accrual process request", zap.String("number", string(number)))
-
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s%s", a.requestAddress, number), nil)
-		if err != nil {
-			zap.L().Error("cannot create request for accrual service", zap.Error(err))
-			continue
-		}
-		res, err := a.client.Do(req)
-		if err != nil {
-			zap.L().Error("cannot create request to accrual service", zap.Error(err))
-			continue
-		}
-
-		accrualResp, err := a.processAccrualResponse(res)
-		if err != nil {
-			if errors.Is(err, ErrOrderNotRegister) {
-				continue
-			} else if !errors.Is(err, ErrRequestsExceeded) {
-				zap.L().Error("error while processing accrual response", zap.Error(err))
+		select {
+		case <- a.done:
+			a.connector.CloseOutput()
+			return
+		default:
+			number, err := a.storage.Get()
+			if err != nil {
+				if !errors.Is(err, ErrEmptyStorage) {
+					zap.L().Error("error while getting number from storage for accrual system")
+				}
 				continue
 			}
 
-			zap.L().Info("accrual service exceeded", zap.String("retry_after", accrualResp.RetryAfter.String()))
-			a.connector.SetOutput(entity.CreatePausedAccrualOrder())
-			<-time.After(accrualResp.RetryAfter)
-			continue
-		}
+			zap.L().Debug("accrual process request", zap.String("number", string(number)))
 
-		a.connector.SetOutput(entity.CreateProcessingAccrualOrder(accrualResp.Order))
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s%s", a.requestAddress, number), nil)
+			if err != nil {
+				zap.L().Error("cannot create request for accrual service", zap.Error(err))
+				continue
+			}
+			res, err := a.client.Do(req)
+			if err != nil {
+				zap.L().Error("cannot create request to accrual service", zap.Error(err))
+				continue
+			}
+
+			accrualResp, err := a.processAccrualResponse(res)
+			if err != nil {
+				if errors.Is(err, ErrOrderNotRegister) {
+					continue
+				} else if !errors.Is(err, ErrRequestsExceeded) {
+					zap.L().Error("error while processing accrual response", zap.Error(err))
+					continue
+				}
+
+				zap.L().Info("accrual service exceeded", zap.String("retry_after", accrualResp.RetryAfter.String()))
+				a.connector.SetOutput(entity.CreatePausedAccrualOrder())
+				<-time.After(accrualResp.RetryAfter)
+				continue
+			}
+
+			a.connector.SetOutput(entity.CreateProcessingAccrualOrder(accrualResp.Order))
+		}
+		
 	}
 }
 
