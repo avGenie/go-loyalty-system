@@ -216,6 +216,7 @@ func TestUploadOrder(t *testing.T) {
 			}
 
 			accrualConnector.EXPECT().GetOutput().AnyTimes()
+			accrualConnector.EXPECT().CloseInput().AnyTimes()
 
 			orders := New(orderProcessor, accrualConnector)
 			handler := orders.UploadOrder()
@@ -430,6 +431,7 @@ func TestGetUserOrders(t *testing.T) {
 			}
 
 			accrualConnector.EXPECT().GetOutput().AnyTimes()
+			accrualConnector.EXPECT().CloseInput().AnyTimes()
 
 			orders := New(orderProcessor, accrualConnector)
 			handler := orders.GetUserOrders()
