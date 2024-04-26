@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"time"
 
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
@@ -21,6 +22,12 @@ import (
 const (
 	ErrTokenExpired = "token has expired"
 	ErrInvalidAuth  = "auth credentials are invalid"
+)
+
+const (
+	flushBufLen = 10
+
+	tickerTime = 5 * time.Second
 )
 
 type OrderProcessor interface {
@@ -115,37 +122,45 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 }
 
 func (p *Order) updateOrders() {
-	orders := make(entity.Orders, 0, 10)
-	for {
-		accrualOrder, ok := p.accrualConnector.GetOutput()
-		if !ok {
-			zap.L().Info("output channel from accrual connector has been closed")
-			if len(orders) != 0 {
-				p.updateOrdersStorage(orders)
-			}
-			return
-		}
+	ticker := time.NewTicker(tickerTime)
+	orders := make(entity.Orders, 0, flushBufLen)
 
-		if entity.StatusPause == accrualOrder.Status {
-			zap.L().Debug("accrual paused")
-			if len(orders) != 0 {
-				p.updateOrdersStorage(orders)
-				orders = orders[:0]
-			}
-			continue
-		}
-
-		if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
-			zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
-			continue
-		}
-
-		zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
-
-		orders = append(orders, accrualOrder.Order)
-		if len(orders) == cap(orders) {
+	flushOrders := func() {
+		if len(orders) != 0 {
 			p.updateOrdersStorage(orders)
 			orders = orders[:0]
+		}
+	}
+
+	for {
+		select {
+		case <- ticker.C:
+			flushOrders()
+		default:
+			accrualOrder, ok := p.accrualConnector.GetOutput()
+			if !ok {
+				zap.L().Info("output channel from accrual connector has been closed")
+				flushOrders()
+				return
+			}
+	
+			if entity.StatusPause == accrualOrder.Status {
+				zap.L().Debug("accrual paused")
+				flushOrders()
+				continue
+			}
+	
+			if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
+				zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
+				continue
+			}
+	
+			zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
+	
+			orders = append(orders, accrualOrder.Order)
+			if len(orders) == cap(orders) {
+				flushOrders()
+			}
 		}
 	}
 }
