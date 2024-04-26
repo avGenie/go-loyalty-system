@@ -86,6 +86,8 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			return
 		}
 
+		zap.L().Debug("UploadOrder number", zap.String("number", string(orderNumber)))
+
 		p.accrualConnector.SetInput(orderNumber)
 
 		p.validateUploadOrderResult(userID, storageUserID, w)
@@ -125,12 +127,20 @@ func (p *Order) updateOrders() {
 		}
 
 		if entity.StatusPause == accrualOrder.Status {
+			zap.L().Debug("accrual paused")
 			if len(orders) != 0 {
 				p.updateOrdersStorage(orders)
 				orders = orders[:0]
 			}
 			continue
 		}
+
+		if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
+			zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
+			continue
+		}
+
+		zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
 
 		orders = append(orders, accrualOrder.Order)
 		if len(orders) == cap(orders) {

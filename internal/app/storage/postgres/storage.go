@@ -194,7 +194,7 @@ func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.Orders) error
 		return fmt.Errorf("failed to prepare select query while updating orders in postgres: %w", err)
 	}
 
-	updateQuery := `UPDATE orders SET status=$1 AND accrual=$2 WHERE number=$3`
+	updateQuery := `UPDATE orders SET status=$1::order_status, accrual=$2 WHERE number=$3`
 	stmtUpdate, err := tx.PrepareContext(ctx, updateQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update query while updating orders in postgres: %w", err)

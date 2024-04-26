@@ -67,5 +67,7 @@ func (s *AccrualStorage) Get() (entity.OrderNumber, error) {
 		return entity.OrderNumber(""), ErrGetElement
 	}
 
+	s.list.Remove(el)
+
 	return number, nil
 }

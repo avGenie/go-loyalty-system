@@ -77,6 +77,8 @@ func (a *Accrual) getRequest() {
 			return
 		}
 
+		zap.L().Debug("accrual get request", zap.String("number", string(number)))
+
 		err := a.storage.Add(number)
 		if err != nil {
 			if !errors.Is(err, ErrEmptyStorageSpace) {
@@ -96,7 +98,9 @@ func (a *Accrual) processRequests() {
 			continue
 		}
 
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, number), nil)
+		zap.L().Debug("accrual process request", zap.String("number", string(number)))
+
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("http://%s%s", a.requestAddress, number), nil)
 		if err != nil {
 			zap.L().Error("cannot create request for accrual service", zap.Error(err))
 			continue

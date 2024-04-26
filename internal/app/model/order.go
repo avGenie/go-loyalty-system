@@ -9,6 +9,15 @@ const (
 	StatusProcessedOrder  OrderStatus = `PROCESSED`
 )
 
+type AccrualOrderStatus string
+
+const (
+	StatusRegisteredAccrual AccrualOrderStatus = `REGISTERED`
+	StatusInvalidAccrual    AccrualOrderStatus = `INVALID`
+	StatusProcessingAccrual AccrualOrderStatus = `PROCESSING`
+	StatusProcessedAccrual  AccrualOrderStatus = `PROCESSED`
+)
+
 type UploadedOrders []UploadedOrder
 
 type UploadedOrder struct {
