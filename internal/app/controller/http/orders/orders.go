@@ -95,6 +95,12 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 		}
 
 		zap.L().Debug("UploadOrder number", zap.String("number", string(orderNumber)))
+		zap.L().Info(
+			"upload order number to storage",
+			zap.String("user_id", userID.String()),
+			zap.String("order_user_id", storageUserID.String()),
+			zap.String("order_number", string(orderNumber)),
+		)
 
 		p.accrualConnector.SetInput(orderNumber)
 
