@@ -149,7 +149,7 @@ func (s *Postgres) UploadOrder(ctx context.Context, userID entity.UserID, orderN
 		return entity.UserID(""), fmt.Errorf("failed to commit transaction in postgres while uploading order: %w", err)
 	}
 
-	return userID, nil
+	return entity.UserID(""), nil
 }
 
 func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error) {
