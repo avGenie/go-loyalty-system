@@ -35,7 +35,7 @@ func NewStorage() *AccrualStorage {
 	}
 }
 
-func (s *AccrualStorage) Add(number entity.OrderNumber) error {
+func (s *AccrualStorage) Add(number entity.AccrualOrderRequest) error {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 	if s.freeSpace == 0 {
@@ -51,20 +51,20 @@ func (s *AccrualStorage) Add(number entity.OrderNumber) error {
 	return nil
 }
 
-func (s *AccrualStorage) Get() (entity.OrderNumber, error) {
+func (s *AccrualStorage) Get() (entity.AccrualOrderRequest, error) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
 
 	if s.list.Len() == 0 {
-		return entity.OrderNumber(""), ErrEmptyStorage
+		return entity.AccrualOrderRequest{}, ErrEmptyStorage
 	}
 
 	el := s.list.Front()
 	s.freeSpace++
 
-	number, ok := el.Value.(entity.OrderNumber)
+	number, ok := el.Value.(entity.AccrualOrderRequest)
 	if !ok {
-		return entity.OrderNumber(""), ErrGetElement
+		return entity.AccrualOrderRequest{}, ErrGetElement
 	}
 
 	s.list.Remove(el)

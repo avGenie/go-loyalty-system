@@ -3,22 +3,22 @@ package accrual
 import "github.com/avGenie/go-loyalty-system/internal/app/entity"
 
 type AccrualConnector struct {
-	inputChan      chan entity.OrderNumber
+	inputChan      chan entity.AccrualOrderRequest
 	outputChan     chan entity.AccrualOrder
 }
 
 func NewConnector() *AccrualConnector {
 	return &AccrualConnector{
-		inputChan: make(chan entity.OrderNumber),
+		inputChan: make(chan entity.AccrualOrderRequest),
 		outputChan: make(chan entity.AccrualOrder),
 	}
 }
 
-func (c *AccrualConnector) SetInput(number entity.OrderNumber) {
+func (c *AccrualConnector) SetInput(number entity.AccrualOrderRequest) {
 	c.inputChan <- number
 }
 
-func (c *AccrualConnector) GetInput() (entity.OrderNumber, bool) {
+func (c *AccrualConnector) GetInput() (entity.AccrualOrderRequest, bool) {
 	val, ok := <- c.inputChan
 
 	return val, ok

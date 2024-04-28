@@ -15,4 +15,6 @@ type Storage interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.Orders) error
+
+	UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error
 }

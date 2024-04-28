@@ -87,15 +87,15 @@ func (a *Accrual) Stop() {
 
 func (a *Accrual) getRequest() {
 	for {
-		number, ok := a.connector.GetInput()
+		request, ok := a.connector.GetInput()
 		if !ok {
 			zap.L().Info("input channel has been closed for accrual service")
 			return
 		}
 
-		zap.L().Debug("accrual get request", zap.String("number", string(number)))
+		zap.L().Debug("accrual get request", zap.String("number", string(request.Number)), zap.String("user_id", request.UserID.String()))
 
-		err := a.storage.Add(number)
+		err := a.storage.Add(request)
 		if err != nil {
 			if !errors.Is(err, ErrEmptyStorageSpace) {
 				zap.L().Error("error while pushing number to accrual storage")
@@ -111,17 +111,17 @@ func (a *Accrual) processRequests() {
 			a.connector.CloseOutput()
 			return
 		default:
-			number, err := a.storage.Get()
+			request, err := a.storage.Get()
 			if err != nil {
 				if !errors.Is(err, ErrEmptyStorage) {
-					zap.L().Error("error while getting number from storage for accrual system")
+					zap.L().Error("error while getting request from storage for accrual system")
 				}
 				continue
 			}
 
-			zap.L().Debug("accrual process request", zap.String("number", string(number)))
+			zap.L().Debug("accrual process request", zap.String("number", string(request.Number)), zap.String("user_id", request.UserID.String()))
 
-			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, number), nil)
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s%s", a.requestAddress, request.Number), nil)
 			if err != nil {
 				zap.L().Error("cannot create request for accrual service", zap.Error(err))
 				continue
@@ -147,7 +147,7 @@ func (a *Accrual) processRequests() {
 				continue
 			}
 
-			a.connector.SetOutput(entity.CreateProcessingAccrualOrder(accrualResp.Order))
+			a.connector.SetOutput(entity.CreateProcessingAccrualOrder(request.UserID, accrualResp.Order))
 		}
 		
 	}

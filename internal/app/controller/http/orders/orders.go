@@ -35,10 +35,11 @@ type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.Orders) error
+	UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error
 }
 
 type AccrualOrderConnector interface {
-	SetInput(number entity.OrderNumber)
+	SetInput(number entity.AccrualOrderRequest)
 	CloseInput()
 	GetOutput() (entity.AccrualOrder, bool)
 }
@@ -102,7 +103,7 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			zap.String("order_number", string(orderNumber)),
 		)
 
-		p.accrualConnector.SetInput(orderNumber)
+		p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, orderNumber))
 
 		p.validateUploadOrderResult(userID, storageUserID, w)
 	}
@@ -122,7 +123,7 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 			return
 		}
 
-		p.updateAccrualState(orders)
+		p.updateAccrualState(userID, orders)
 
 		p.sendUserOrders(orders, w)
 	}
@@ -149,11 +150,21 @@ func (p *Order) Stop() {
 func (p *Order) updateOrders() {
 	ticker := time.NewTicker(tickerTime)
 	orders := make(entity.Orders, 0, flushBufLen)
+	balance := make(map[entity.UserID]float64, flushBufLen)
 
 	flushOrders := func() {
 		if len(orders) != 0 {
 			p.updateOrdersStorage(orders)
 			orders = orders[:0]
+		}
+		if len(balance) != 0 {
+			err := p.updateBalanceStorage(balance)
+			if err != nil {
+				zap.L().Error("error while updating balance batch", zap.Error(err))
+				return
+			}
+
+			clear(balance)
 		}
 	}
 
@@ -176,6 +187,17 @@ func (p *Order) updateOrders() {
 				continue
 			}
 
+			zap.L().Debug(
+				"accrual order status",
+				zap.String("order_number", string(accrualOrder.Order.Number)),
+				zap.String("status", accrualOrder.Order.Status),
+				zap.String("user_id", string(accrualOrder.UserID.String())),
+			)
+
+			if string(model.StatusProcessedAccrual) == accrualOrder.Order.Status {
+				balance[accrualOrder.UserID] += accrualOrder.Order.Accrual
+			}
+
 			if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
 				zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
 				continue
@@ -191,6 +213,26 @@ func (p *Order) updateOrders() {
 	}
 }
 
+func (p *Order) updateBalanceStorage(userBalances map[entity.UserID]float64) error {
+	var balances entity.UserBalances
+	for userID, balance := range userBalances {
+		balances = append(balances, entity.UserBalance{
+			UserID: userID,
+			Balance: balance,
+		})
+	}
+
+	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
+	defer close()
+
+	err := p.storage.UpdateBalanceBatch(ctx, balances)
+	if err != nil {
+		return fmt.Errorf("error while updating balance batch: %w", err)
+	}
+
+	return nil
+}
+
 func (p *Order) updateOrdersStorage(orders entity.Orders) {
 	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
 	defer close()
@@ -201,10 +243,10 @@ func (p *Order) updateOrdersStorage(orders entity.Orders) {
 	}
 }
 
-func (p *Order) updateAccrualState(orders entity.Orders) {
+func (p *Order) updateAccrualState(userID entity.UserID, orders entity.Orders) {
 	for _, order := range orders {
 		if order.Status == string(model.StatusNewOrder) || order.Status == string(model.StatusProcessingOrder) {
-			p.accrualConnector.SetInput(order.Number)
+			p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, order.Number))
 		}
 	}
 }

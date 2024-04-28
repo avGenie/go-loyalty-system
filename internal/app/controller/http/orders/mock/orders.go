@@ -50,6 +50,20 @@ func (mr *MockOrderProcessorMockRecorder) GetUserOrders(ctx, userID interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserOrders", reflect.TypeOf((*MockOrderProcessor)(nil).GetUserOrders), ctx, userID)
 }
 
+// UpdateBalanceBatch mocks base method.
+func (m *MockOrderProcessor) UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateBalanceBatch", ctx, balances)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateBalanceBatch indicates an expected call of UpdateBalanceBatch.
+func (mr *MockOrderProcessorMockRecorder) UpdateBalanceBatch(ctx, balances interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateBalanceBatch", reflect.TypeOf((*MockOrderProcessor)(nil).UpdateBalanceBatch), ctx, balances)
+}
+
 // UpdateOrders mocks base method.
 func (m *MockOrderProcessor) UpdateOrders(ctx context.Context, orders entity.Orders) error {
 	m.ctrl.T.Helper()
@@ -130,7 +144,7 @@ func (mr *MockAccrualOrderConnectorMockRecorder) GetOutput() *gomock.Call {
 }
 
 // SetInput mocks base method.
-func (m *MockAccrualOrderConnector) SetInput(number entity.OrderNumber) {
+func (m *MockAccrualOrderConnector) SetInput(number entity.AccrualOrderRequest) {
 	m.ctrl.T.Helper()
 	m.ctrl.Call(m, "SetInput", number)
 }

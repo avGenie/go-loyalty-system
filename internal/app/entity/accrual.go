@@ -1,6 +1,8 @@
 package entity
 
-import "time"
+import (
+	"time"
+)
 
 type AccrualStatus int
 
@@ -14,14 +16,28 @@ type AccrualProcessingResponse struct {
 	RetryAfter time.Duration
 }
 
+type AccrualOrderRequest struct {
+	Number OrderNumber
+	UserID UserID
+}
+
 type AccrualOrder struct {
 	Order  Order
+	UserID UserID
 	Status AccrualStatus
 }
 
-func CreateProcessingAccrualOrder(order Order) AccrualOrder {
+func CreateAccrualRequest(userID UserID, number OrderNumber) AccrualOrderRequest {
+	return AccrualOrderRequest{
+		Number: number,
+		UserID: userID,
+	}
+}
+
+func CreateProcessingAccrualOrder(userID UserID, order Order) AccrualOrder {
 	return AccrualOrder{
 		Order:  order,
+		UserID: userID,
 		Status: StatusProcessing,
 	}
 }
