@@ -108,6 +108,20 @@ func (mr *MockOrderProcessorMockRecorder) UploadOrder(ctx, userID, orderNumber i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UploadOrder", reflect.TypeOf((*MockOrderProcessor)(nil).UploadOrder), ctx, userID, orderNumber)
 }
 
+// WithdrawUser mocks base method.
+func (m *MockOrderProcessor) WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WithdrawUser", ctx, userID, withdraw)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WithdrawUser indicates an expected call of WithdrawUser.
+func (mr *MockOrderProcessorMockRecorder) WithdrawUser(ctx, userID, withdraw interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WithdrawUser", reflect.TypeOf((*MockOrderProcessor)(nil).WithdrawUser), ctx, userID, withdraw)
+}
+
 // MockAccrualOrderConnector is a mock of AccrualOrderConnector interface.
 type MockAccrualOrderConnector struct {
 	ctrl     *gomock.Controller

@@ -258,7 +258,7 @@ func (s *Postgres) UpdateBalanceBatch(ctx context.Context, balances entity.Updat
 	}
 
 	for _, balance := range balances {
-		err := s.selectUserBalance(ctx, balance)
+		_, err := s.selectUserBalanceOnUpdate(ctx, balance.UserID)
 		if err != nil {
 			if err != sql.ErrNoRows {
 				return fmt.Errorf("failed to execute select query while updating user balances in postgres: %w", err)
@@ -314,19 +314,59 @@ func (s *Postgres) GetUserBalance(ctx context.Context, userID entity.UserID) (en
 	return userBalance, nil
 }
 
-func (s *Postgres) selectUserBalance(ctx context.Context, balance entity.UserBalance) error {
-	querySelect := `SELECT user_id FROM balance WHERE user_id=$1 FOR UPDATE`
-	row := s.db.QueryRowContext(ctx, querySelect, balance.UserID)
+func (s *Postgres) WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction while withdrawing user bonuces in postgres: %w", err)
+	}
+	defer tx.Rollback()
+
+	sum, err := s.selectUserBalanceOnUpdate(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("error while withdrawing user bonuces in postgres: %w", err)
+	}
+	
+	diffSum := sum - withdraw.Sum
+	if diffSum < 0 {
+		return err_api.ErrNotEnoughSum
+	}
+
+	queryUpdateBalance := `UPDATE balance SET sum=$1 WHERE user_id=$2`
+	_, err = s.db.ExecContext(ctx, queryUpdateBalance, diffSum, userID)
+	if err != nil {
+		return fmt.Errorf("error while updating sum while withdrawing user bonuces in postgres: %w", err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("unable to commit transaction while withdrawing user bonuces in postgres: %w", err)
+	}
+
+	return nil
+}
+
+func (s *Postgres) selectUserBalanceOnUpdate(ctx context.Context, userID entity.UserID) (float64, error) {
+	querySelect := `SELECT sum FROM balance WHERE user_id=$1 FOR UPDATE`
+	row := s.db.QueryRowContext(ctx, querySelect, userID)
 	if row == nil {
-		return fmt.Errorf("error while postgres request preparation while selecting user balance")
+		return 0, fmt.Errorf("error while postgres request preparation while selecting user balance")
 	}
 
 	if row.Err() != nil {
-		return fmt.Errorf("error while postgres request execution while selecting user balance: %w", row.Err())
+		return 0, fmt.Errorf("error while postgres request execution while selecting user balance: %w", row.Err())
 	}
 
-	var storageUserID string
-	return row.Scan(&storageUserID)
+	var sum float64
+	err := row.Scan(&sum)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, err_api.ErrUserNotFoundTable
+		}
+
+		return 0, fmt.Errorf("error while processing response row in postgres: %w", err)
+	}
+
+	return sum, nil
 }
 
 func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entity.OrderNumber) (entity.UserID, error) {

@@ -18,4 +18,6 @@ type Storage interface {
 
 	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
+
+	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
 }

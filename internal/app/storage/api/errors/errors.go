@@ -12,4 +12,6 @@ var (
 
 	ErrUserExistsTable   = errors.New("given user exist in table")
 	ErrUserNotFoundTable = errors.New("given user doesn't exist in table")
+
+	ErrNotEnoughSum = errors.New("not enough sum")
 )

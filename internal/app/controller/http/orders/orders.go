@@ -37,6 +37,7 @@ type OrderProcessor interface {
 	UpdateOrders(ctx context.Context, orders entity.Orders) error
 	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
+	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
 }
 
 type AccrualOrderConnector interface {
@@ -148,6 +149,23 @@ func (p *Order) GetUserBalance() http.HandlerFunc {
 	}
 }
 
+func (p *Order) WithdrawBonuses() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := p.parseUserID(w, r)
+		if err != nil {
+			zap.L().Error("error while parsing user id while withdrawing user bonuces", zap.Error(err))
+			return
+		}
+
+		withdraw, err := p.parseUserWithdraw(w, r)
+		if err != nil {
+			zap.L().Error("error while parsing user withdraw", zap.Error(err))
+		}
+
+		p.withdrawUserBonuses(userID, withdraw, w)
+	}
+}
+
 func (p *Order) Stop() {
 	ready := make(chan bool)
 	go func() {
@@ -164,6 +182,51 @@ func (p *Order) Stop() {
 		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
 		return
 	}
+}
+
+func (p *Order) withdrawUserBonuses(userID entity.UserID, withdraw entity.Withdraw, w http.ResponseWriter) {
+	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
+	defer cancel()
+
+	err := p.storage.WithdrawUser(ctx, userID, withdraw)
+	if err != nil {
+		if errors.Is(err, err_storage.ErrNotEnoughSum) {
+			zap.L().Info("not enough money for withdrawing")
+			w.WriteHeader(http.StatusPaymentRequired)
+		} else {
+			zap.L().Error("error while withdrawing user to storage", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+}
+
+func (p *Order) parseUserWithdraw(w http.ResponseWriter, r *http.Request) (entity.Withdraw, error) {
+	bodyResult, err := io.ReadAll(r.Body)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return entity.Withdraw{}, fmt.Errorf("error while reading request body :%w", err)
+	}
+	defer r.Body.Close()
+
+	var withdraw model.WithdrawRequest
+	err = json.Unmarshal(bodyResult, &withdraw)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return entity.Withdraw{}, fmt.Errorf("error while unmarshal request body :%w", err)
+	}
+
+	orderNumber := entity.OrderNumber(withdraw.Order)
+	isValid := validator.OrderNumberValidation(orderNumber)
+	if !isValid {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		return entity.Withdraw{}, fmt.Errorf("order number = %s is invalid while parse user withdraw", orderNumber)
+	}
+
+	return converter.ConvertRequestWithdrawToEntity(withdraw), nil
 }
 
 func (p *Order) updateOrders() {
