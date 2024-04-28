@@ -60,21 +60,39 @@ func (s *Postgres) Close() error {
 }
 
 func (s *Postgres) CreateUser(ctx context.Context, user entity.User) error {
-	query := `INSERT INTO users VALUES(@userID, @login, @password)`
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create transaction in postgres while creating user: %w", err)
+	}
+	defer tx.Rollback()
+
+	queryInsertUser := `INSERT INTO users VALUES(@userID, @login, @password)`
 	args := pgx.NamedArgs{
 		"userID":   user.ID.String(),
 		"login":    user.Login,
 		"password": user.Password,
 	}
 
-	_, err := s.db.ExecContext(ctx, query, args)
+	err = s.execInsertContext(ctx, err_api.ErrLoginExists, queryInsertUser, args)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgerrcode.IsIntegrityConstraintViolation(pgErr.Code) {
-			return fmt.Errorf("error while save url to postgres: %w", err_api.ErrLoginExists)
-		}
+		return fmt.Errorf("error while inserting user: %w", err)
+	}
 
-		return fmt.Errorf("unable to insert row to postgres: %w", err)
+	queryInsertUserBalance := `INSERT INTO balance(user_id) VALUES($1)`
+	err = s.execInsertContext(ctx, err_api.ErrUserExistsTable, queryInsertUserBalance, user.ID)
+	if err != nil {
+		return fmt.Errorf("error while inserting user balance: %w", err)
+	}
+
+	queryInsertUserWithdrawnBalance := `INSERT INTO withdrawn_balance(user_id) VALUES($1)`
+	err = s.execInsertContext(ctx, err_api.ErrUserExistsTable, queryInsertUserWithdrawnBalance, user.ID)
+	if err != nil {
+		return fmt.Errorf("error while inserting user balance withdrawans: %w", err)
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return fmt.Errorf("failed to commit transaction in postgres while creating user: %w", err)
 	}
 
 	return nil
@@ -220,8 +238,7 @@ func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.Orders) error
 	return nil
 }
 
-
-func (s *Postgres) UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error {
+func (s *Postgres) UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction while updating user balances in postgres: %w", err)
@@ -268,6 +285,35 @@ func (s *Postgres) UpdateBalanceBatch(ctx context.Context, balances entity.UserB
 	return nil
 }
 
+func (s *Postgres) GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error) {
+	query := `SELECT b.sum, wb.withdrawn FROM balance AS b
+				INNER JOIN withdrawn_balance AS wb
+					ON b.user_id=wb.user_id 
+			  WHERE b.user_id=$1`
+
+	row := s.db.QueryRowContext(ctx, query, userID)
+	if row == nil {
+		return entity.UserBalance{}, fmt.Errorf("error while postgres request preparation while getting user balance")
+	}
+
+	if row.Err() != nil {
+		return entity.UserBalance{}, fmt.Errorf("error while postgres request execution while getting user balance: %w", row.Err())
+	}
+
+	userBalance := entity.UserBalance{
+		UserID: userID,
+	}
+	err := row.Scan(&userBalance.Balance, &userBalance.Withdrawans)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return entity.UserBalance{}, err_api.ErrUserNotFoundTable
+		}
+		return entity.UserBalance{}, fmt.Errorf("error while processing response row in postgres while getting user balance: %w", err)
+	}
+
+	return userBalance, nil
+}
+
 func (s *Postgres) selectUserBalance(ctx context.Context, balance entity.UserBalance) error {
 	querySelect := `SELECT user_id FROM balance WHERE user_id=$1 FOR UPDATE`
 	row := s.db.QueryRowContext(ctx, querySelect, balance.UserID)
@@ -308,6 +354,20 @@ func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entit
 	}
 
 	return userID, nil
+}
+
+func (s *Postgres) execInsertContext(ctx context.Context, constraintErr error, query string, args ...any) error {
+	_, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgerrcode.IsIntegrityConstraintViolation(pgErr.Code) {
+			return fmt.Errorf("constraint error while inserting row to postgres: %w", constraintErr)
+		}
+
+		return fmt.Errorf("unable to insert row to postgres: %w", err)
+	}
+
+	return nil
 }
 
 func migration(db *sql.DB) error {

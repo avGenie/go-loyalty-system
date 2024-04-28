@@ -35,6 +35,21 @@ func (m *MockOrderProcessor) EXPECT() *MockOrderProcessorMockRecorder {
 	return m.recorder
 }
 
+// GetUserBalance mocks base method.
+func (m *MockOrderProcessor) GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserBalance", ctx, userID)
+	ret0, _ := ret[0].(entity.UserBalance)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserBalance indicates an expected call of GetUserBalance.
+func (mr *MockOrderProcessorMockRecorder) GetUserBalance(ctx, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserBalance", reflect.TypeOf((*MockOrderProcessor)(nil).GetUserBalance), ctx, userID)
+}
+
 // GetUserOrders mocks base method.
 func (m *MockOrderProcessor) GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error) {
 	m.ctrl.T.Helper()
@@ -51,7 +66,7 @@ func (mr *MockOrderProcessorMockRecorder) GetUserOrders(ctx, userID interface{})
 }
 
 // UpdateBalanceBatch mocks base method.
-func (m *MockOrderProcessor) UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error {
+func (m *MockOrderProcessor) UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateBalanceBatch", ctx, balances)
 	ret0, _ := ret[0].(error)

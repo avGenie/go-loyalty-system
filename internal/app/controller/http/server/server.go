@@ -97,6 +97,7 @@ func createMux(authenticator auth.AuthUser, orders orders.Order) *chi.Mux {
 	r.Post("/api/user/orders", orders.UploadOrder())
 
 	r.Get("/api/user/orders", orders.GetUserOrders())
+	r.Get("/api/user/balance", orders.GetUserBalance())
 
 	return r
 }

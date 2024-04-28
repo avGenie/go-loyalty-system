@@ -16,5 +16,6 @@ type Storage interface {
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.Orders) error
 
-	UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error
+	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
+	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
 }

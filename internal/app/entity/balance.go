@@ -1,8 +1,14 @@
 package entity
 
-type UserBalances []UserBalance
+type UpdateUserBalances []UserBalance
+
+type UpdateUserBalance struct {
+	UserID      UserID
+	Balance     float64
+}
 
 type UserBalance struct {
-	UserID  UserID
-	Balance float64
+	UserID      UserID
+	Balance     float64
+	Withdrawans float64
 }

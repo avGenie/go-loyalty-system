@@ -35,7 +35,8 @@ type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.Orders) error
-	UpdateBalanceBatch(ctx context.Context, balances entity.UserBalances) error
+	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
+	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
 }
 
 type AccrualOrderConnector interface {
@@ -129,6 +130,24 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 	}
 }
 
+func (p *Order) GetUserBalance() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := p.parseUserID(w, r)
+		if err != nil {
+			zap.L().Error("error while parsing user id while getting user balance", zap.Error(err))
+			return
+		}
+
+		balance, err := p.getUserBalance(userID, w)
+		if err != nil {
+			zap.L().Error("error while getting user balance", zap.Error(err))
+			return
+		}
+
+		p.sendUserBalance(balance, w)
+	}
+}
+
 func (p *Order) Stop() {
 	ready := make(chan bool)
 	go func() {
@@ -214,7 +233,7 @@ func (p *Order) updateOrders() {
 }
 
 func (p *Order) updateBalanceStorage(userBalances map[entity.UserID]float64) error {
-	var balances entity.UserBalances
+	var balances entity.UpdateUserBalances
 	for userID, balance := range userBalances {
 		balances = append(balances, entity.UserBalance{
 			UserID: userID,
@@ -251,6 +270,19 @@ func (p *Order) updateAccrualState(userID entity.UserID, orders entity.Orders) {
 	}
 }
 
+func (p *Order) getUserBalance(userID entity.UserID, w http.ResponseWriter) (entity.UserBalance, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
+	defer cancel()
+
+	balance, err := p.storage.GetUserBalance(ctx, userID)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return entity.UserBalance{}, fmt.Errorf("error while getting user balance: %w", err)
+	}
+
+	return balance, nil
+}
+
 func (p *Order) getUserOrders(userID entity.UserID, w http.ResponseWriter) (entity.Orders, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
 	defer cancel()
@@ -267,6 +299,21 @@ func (p *Order) getUserOrders(userID entity.UserID, w http.ResponseWriter) (enti
 	}
 
 	return orders, nil
+}
+
+func (p *Order) sendUserBalance(balance entity.UserBalance, w http.ResponseWriter) {
+	outBalance := converter.ConvertStorageBalanceToOutput(balance)
+
+	out, err := json.Marshal(outBalance)
+	if err != nil {
+		zap.L().Error("error while marshalling user balance", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
 }
 
 func (p *Order) sendUserOrders(orders entity.Orders, w http.ResponseWriter) {
