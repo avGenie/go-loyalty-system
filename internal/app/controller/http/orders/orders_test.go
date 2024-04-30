@@ -456,3 +456,157 @@ func TestGetUserOrders(t *testing.T) {
 		})
 	}
 }
+
+func TestGetUserBalance(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orderProcessor := mock.NewMockOrderProcessor(ctrl)
+	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
+
+	outputCorrect := strings.TrimSpace(`
+	{
+		"current": 600.20,
+		"withdrawn": 350.80
+	}`)
+
+	correctDBOutput := entity.UserBalance{
+		UserID:      "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+		Balance:     600.20,
+		Withdrawans: 350.80,
+	}
+
+	type want struct {
+		statusCode int
+		outputBody string
+	}
+	tests := []struct {
+		name         string
+		userID       string
+		storageErr   error
+		isGetBalance bool
+		isContext    bool
+		dbOutput     entity.UserBalance
+		userIDCtx    entity.UserIDCtx
+
+		want want
+	}{
+		{
+			name:         "get correct balance",
+			userID:       "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+			storageErr:   nil,
+			isGetBalance: true,
+			isContext:    true,
+			dbOutput:     correctDBOutput,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusOK,
+				outputBody: outputCorrect,
+			},
+		},
+		{
+			name:         "storage error",
+			storageErr:   fmt.Errorf(""),
+			isGetBalance: true,
+			isContext:    true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:        "user id context undefined",
+			storageErr:  nil,
+			isGetBalance: false,
+			isContext:   false,
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:        "user id bad request",
+			storageErr:  nil,
+			isGetBalance: false,
+			isContext:   true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusBadRequest,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+		{
+			name:        "user unauthorized",
+			storageErr:  nil,
+			isGetBalance: false,
+			isContext:   true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusUnauthorized,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrTokenExpired,
+			},
+		},
+		{
+			name:        "user id is invalid",
+			storageErr:  nil,
+			isGetBalance: false,
+			isContext:   true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
+			writer := httptest.NewRecorder()
+
+			if test.isContext {
+				request = request.WithContext(context.WithValue(request.Context(), entity.UserIDCtxKey{}, test.userIDCtx))
+			}
+
+			if test.isGetBalance {
+				orderProcessor.EXPECT().GetUserBalance(gomock.Any(), gomock.Any()).Return(test.dbOutput, test.storageErr)
+			} else {
+				orderProcessor.EXPECT().GetUserBalance(gomock.Any(), gomock.Any()).Times(0)
+			}
+
+			accrualConnector.EXPECT().GetOutput().AnyTimes()
+			accrualConnector.EXPECT().CloseInput().AnyTimes()
+
+			orders := New(orderProcessor, accrualConnector)
+			handler := orders.GetUserBalance()
+			handler(writer, request)
+
+			res := writer.Result()
+
+			assert.Equal(t, test.want.statusCode, res.StatusCode)
+
+			err := res.Body.Close()
+			require.NoError(t, err)
+		})
+	}
+}
