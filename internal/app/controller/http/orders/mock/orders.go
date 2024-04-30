@@ -65,6 +65,21 @@ func (mr *MockOrderProcessorMockRecorder) GetUserOrders(ctx, userID interface{})
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserOrders", reflect.TypeOf((*MockOrderProcessor)(nil).GetUserOrders), ctx, userID)
 }
 
+// GetUserWithdrawals mocks base method.
+func (m *MockOrderProcessor) GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetUserWithdrawals", ctx, userID)
+	ret0, _ := ret[0].(entity.Withdrawals)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetUserWithdrawals indicates an expected call of GetUserWithdrawals.
+func (mr *MockOrderProcessorMockRecorder) GetUserWithdrawals(ctx, userID interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserWithdrawals", reflect.TypeOf((*MockOrderProcessor)(nil).GetUserWithdrawals), ctx, userID)
+}
+
 // UpdateBalanceBatch mocks base method.
 func (m *MockOrderProcessor) UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error {
 	m.ctrl.T.Helper()

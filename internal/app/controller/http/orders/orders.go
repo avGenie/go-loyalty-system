@@ -38,6 +38,7 @@ type OrderProcessor interface {
 	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
 	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
+	GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error)
 }
 
 type AccrualOrderConnector interface {
@@ -121,7 +122,6 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 
 		orders, err := p.getUserOrders(userID, w)
 		if err != nil {
-			zap.L().Error("error while getting user orders", zap.Error(err))
 			return
 		}
 
@@ -153,7 +153,7 @@ func (p *Order) WithdrawBonuses() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userID, err := p.parseUserID(w, r)
 		if err != nil {
-			zap.L().Error("error while parsing user id while withdrawing user bonuces", zap.Error(err))
+			zap.L().Error("error while parsing user id while withdrawing user bonuses", zap.Error(err))
 			return
 		}
 
@@ -163,6 +163,23 @@ func (p *Order) WithdrawBonuses() http.HandlerFunc {
 		}
 
 		p.withdrawUserBonuses(userID, withdraw, w)
+	}
+}
+
+func (p *Order) GetUserWithdrawals() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		userID, err := p.parseUserID(w, r)
+		if err != nil {
+			zap.L().Error("error while parsing user id while withdrawing user bonuses", zap.Error(err))
+			return
+		}
+
+		withdrawals, err := p.getUserWithdrawals(userID, w)
+		if err != nil {
+			return
+		}
+
+		p.sendUserWithdrawals(withdrawals, w)
 	}
 }
 
@@ -182,6 +199,40 @@ func (p *Order) Stop() {
 		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
 		return
 	}
+}
+
+func (p *Order) sendUserWithdrawals(withdrawals entity.Withdrawals, w http.ResponseWriter) {
+	outWithdrawals := converter.ConvertWithdrawToWithdrawResponse(withdrawals)
+
+	out, err := json.Marshal(outWithdrawals)
+	if err != nil {
+		zap.L().Error("error while marshalling user withdrawals", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(out)
+}
+
+func (p *Order) getUserWithdrawals(userID entity.UserID, w http.ResponseWriter) (entity.Withdrawals, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
+	defer cancel()
+
+	withdrawals, err := p.storage.GetUserWithdrawals(ctx, userID)
+	if err != nil {
+		if errors.Is(err, err_storage.ErrWithdrawalsForUserNotFound) {
+			zap.L().Info("withdrawals for given user not found", zap.String("user_id", userID.String()))
+			w.WriteHeader(http.StatusNoContent)
+		} else {
+			zap.L().Error("error while getting user withdrawals", zap.Error(err))
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+		return nil, err
+	}
+
+	return withdrawals, nil
 }
 
 func (p *Order) withdrawUserBonuses(userID entity.UserID, withdraw entity.Withdraw, w http.ResponseWriter) {
@@ -353,12 +404,14 @@ func (p *Order) getUserOrders(userID entity.UserID, w http.ResponseWriter) (enti
 	orders, err := p.storage.GetUserOrders(ctx, userID)
 	if err != nil {
 		if errors.Is(err, err_storage.ErrOrderForUserNotFound) {
+			zap.L().Info("orders for given user not found", zap.String("user_id", userID.String()))
 			w.WriteHeader(http.StatusNoContent)
 		} else {
+			zap.L().Error("error while getting user orders", zap.Error(err))
 			w.WriteHeader(http.StatusInternalServerError)
 		}
 
-		return entity.Orders{}, fmt.Errorf("error while getting user orders: %w", err)
+		return entity.Orders{}, err
 	}
 
 	return orders, nil

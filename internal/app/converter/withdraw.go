@@ -11,3 +11,18 @@ func ConvertRequestWithdrawToEntity(request model.WithdrawRequest) entity.Withdr
 		Sum: request.Sum,
 	}
 }
+
+func ConvertWithdrawToWithdrawResponse(withdrawals entity.Withdrawals) model.WithdrawalsResponses {
+	responses := make(model.WithdrawalsResponses, 0, len(withdrawals))
+	for _, withdraw := range withdrawals {
+		response := model.WithdrawalsResponse{
+			OrderNumber: string(withdraw.OrderNumber),
+			Sum: withdraw.Sum,
+			DateCreated: withdraw.DateCreated,
+		}
+
+		responses = append(responses, response)
+	}
+
+	return responses
+}

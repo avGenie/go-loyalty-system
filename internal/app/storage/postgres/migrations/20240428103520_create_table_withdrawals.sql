@@ -1,7 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE IF NOT EXISTS withdrawals(
-	order_number VARCHAR(16),
+	order_number VARCHAR(16) PRIMARY KEY,
 	sum numeric NOT NULL,
 	process_date TIMESTAMP NOT NULL DEFAULT now()
 );

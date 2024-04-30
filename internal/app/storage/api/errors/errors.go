@@ -14,4 +14,6 @@ var (
 	ErrUserNotFoundTable = errors.New("given user doesn't exist in table")
 
 	ErrNotEnoughSum = errors.New("not enough sum")
+
+	ErrWithdrawalsForUserNotFound = errors.New("withdrawals not found for given user")
 )

@@ -20,4 +20,5 @@ type Storage interface {
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
 
 	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
+	GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error)
 }

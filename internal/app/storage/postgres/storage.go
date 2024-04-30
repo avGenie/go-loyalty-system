@@ -196,6 +196,10 @@ func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (ent
 		orders = append(orders, order)
 	}
 
+	if len(orders) == 0 {
+		return nil, err_api.ErrOrderForUserNotFound
+	}
+
 	return orders, nil
 }
 
@@ -317,13 +321,13 @@ func (s *Postgres) GetUserBalance(ctx context.Context, userID entity.UserID) (en
 func (s *Postgres) WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("failed to begin transaction while withdrawing user bonuses in postgres: %w", err)
 	}
 	defer tx.Rollback()
 
 	sum, err := s.selectUserBalanceOnUpdate(ctx, userID)
 	if err != nil {
-		return fmt.Errorf("error while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("error while withdrawing user bonuses in postgres: %w", err)
 	}
 
 	diffSum := sum - withdraw.Sum
@@ -338,27 +342,67 @@ func (s *Postgres) WithdrawUser(ctx context.Context, userID entity.UserID, withd
 	}
 	err = s.execInsertContext(ctx, err_api.ErrOrderNumberExists, queryInsertWithdrawal, argsWithdrawal)
 	if err != nil {
-		return fmt.Errorf("error while inserting user withdraw: %w", err)
+		return fmt.Errorf("error while inserting user withdrawal while withdrawing user bonuses in postgres: %w", err)
+	}
+
+	queryInsertUserWithdrawals := `INSERT INTO users_withdrawals VALUES($1, $2)`
+	err = s.execInsertContext(ctx, err_api.ErrOrderNumberExists, queryInsertUserWithdrawals, userID, withdraw.OrderNumber)
+	if err != nil {
+		return fmt.Errorf("error while inserting user withdrawals while withdrawing user bonuses in postgres: %w", err)
 	}
 
 	queryUpdateBalance := `UPDATE balance SET sum=$1 WHERE user_id=$2`
 	_, err = s.db.ExecContext(ctx, queryUpdateBalance, diffSum, userID)
 	if err != nil {
-		return fmt.Errorf("error while updating balance while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("error while updating balance while withdrawing user bonuses in postgres: %w", err)
 	}
 
 	queryUpdateWithdrawBalance := `UPDATE withdrawn_balance SET withdrawn=withdrawn+$1 WHERE user_id=$2`
 	_, err = s.db.ExecContext(ctx, queryUpdateWithdrawBalance, withdraw.Sum, userID)
 	if err != nil {
-		return fmt.Errorf("error while updating withdrawn sum while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("error while updating withdrawn sum while withdrawing user bonuses in postgres: %w", err)
 	}
 
 	err = tx.Commit()
 	if err != nil {
-		return fmt.Errorf("unable to commit transaction while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("unable to commit transaction while withdrawing user bonuses in postgres: %w", err)
 	}
 
 	return nil
+}
+
+func (s *Postgres) GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error) {
+	query := `SELECT w.order_number, w.sum, w.process_date FROM users_withdrawals AS uw
+				JOIN withdrawals AS w
+					ON uw.order_number=w.order_number
+			  WHERE uw.user_id=$1
+			  ORDER BY w.process_date`
+
+	rows, err := s.db.QueryContext(ctx, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("error in postgres request execution while getting user withdrawals: %w", err)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("error in postgres requested rows while getting user withdrawals: %w", rows.Err())
+	}
+
+	var withdrawals entity.Withdrawals
+	for rows.Next() {
+		var withdraw entity.Withdraw
+		err := rows.Scan(&withdraw.OrderNumber, &withdraw.Sum, &withdraw.DateCreated)
+		if err != nil {
+			return nil, fmt.Errorf("error while parsing row while getting users withdrawals from postgres: %w", err)
+		}
+
+		withdrawals = append(withdrawals, withdraw)
+	}
+
+	if len(withdrawals) == 0 {
+		return nil, err_api.ErrWithdrawalsForUserNotFound
+	}
+
+	return withdrawals, nil
 }
 
 func (s *Postgres) selectUserBalanceOnUpdate(ctx context.Context, userID entity.UserID) (float64, error) {
