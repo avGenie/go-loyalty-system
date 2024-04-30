@@ -848,3 +848,208 @@ func TestWithdrawBonuses(t *testing.T) {
 		})
 	}
 }
+
+func TestGetUserWithdrawals(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orderProcessor := mock.NewMockOrderProcessor(ctrl)
+	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
+
+	outputCorrect := strings.TrimSpace(`
+	[
+		{
+			"order": "374311367329",
+			"sum": 100,
+			"processed_at": "2024-04-30T21:32:05+03:00"
+		},
+		{
+			"order": "475622844086",
+			"sum": 50,
+			"processed_at": "2024-04-30T21:32:18+03:00"
+		},
+		{
+			"order": "221488416308",
+			"sum": 50,
+			"processed_at": "2024-04-30T21:32:23+03:00"
+		}
+	]`)
+
+	dbOutputCorrect := entity.Withdrawals{
+		{
+			OrderNumber: "374311367329",
+			Sum:         100,
+			DateCreated: "2024-04-30T18:32:05.187329Z",
+		},
+		{
+			OrderNumber: "475622844086",
+			Sum:         50,
+			DateCreated: "2024-04-30T18:32:18.574718Z",
+		},
+		{
+			OrderNumber: "221488416308",
+			Sum:         50,
+			DateCreated: "2024-04-30T18:32:23.250438Z",
+		},
+	}
+
+	type want struct {
+		statusCode int
+		outputBody string
+	}
+	tests := []struct {
+		name                 string
+		storageErr           error
+		isGetUserWithdrawals bool
+		isContext            bool
+		isJSONBody           bool
+		dbOutput             entity.Withdrawals
+		userIDCtx            entity.UserIDCtx
+
+		want want
+	}{
+		{
+			name:                 "correct get user withdrawals",
+			storageErr:           nil,
+			isGetUserWithdrawals: true,
+			isContext:            true,
+			isJSONBody:           true,
+			dbOutput:             dbOutputCorrect,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusOK,
+				outputBody: outputCorrect,
+			},
+		},
+		{
+			name:                 "withdrawals not found for user",
+			storageErr:           err_storage.ErrWithdrawalsForUserNotFound,
+			isGetUserWithdrawals: true,
+			isContext:            true,
+			dbOutput:             entity.Withdrawals{},
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusNoContent,
+			},
+		},
+		{
+			name:                 "database error",
+			storageErr:           errors.New(""),
+			isGetUserWithdrawals: true,
+			isContext:            true,
+			dbOutput:             entity.Withdrawals{},
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:                 "user id context undefined",
+			storageErr:           nil,
+			isGetUserWithdrawals: false,
+			isContext:            false,
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:                 "user id bad request",
+			storageErr:           nil,
+			isGetUserWithdrawals: false,
+			isContext:            true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusBadRequest,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+		{
+			name:                 "user unauthorized",
+			storageErr:           nil,
+			isGetUserWithdrawals: false,
+			isContext:            true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusUnauthorized,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrTokenExpired,
+			},
+		},
+		{
+			name:                 "user id is invalid",
+			storageErr:           nil,
+			isGetUserWithdrawals: false,
+			isContext:            true,
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/user/withdrawals", nil)
+			writer := httptest.NewRecorder()
+
+			if test.isContext {
+				request = request.WithContext(context.WithValue(request.Context(), entity.UserIDCtxKey{}, test.userIDCtx))
+			}
+
+			if test.isGetUserWithdrawals {
+				orderProcessor.EXPECT().GetUserWithdrawals(gomock.Any(), gomock.Any()).Return(test.dbOutput, test.storageErr)
+			} else {
+				orderProcessor.EXPECT().GetUserWithdrawals(gomock.Any(), gomock.Any()).Times(0)
+			}
+
+			accrualConnector.EXPECT().GetOutput().AnyTimes()
+			accrualConnector.EXPECT().CloseInput().AnyTimes()
+
+			orders := New(orderProcessor, accrualConnector)
+			handler := orders.GetUserWithdrawals()
+			handler(writer, request)
+
+			res := writer.Result()
+
+			assert.Equal(t, test.want.statusCode, res.StatusCode)
+
+			if len(test.want.outputBody) != 0 {
+				bodyResult, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				if test.isJSONBody {
+					assert.JSONEq(t, test.want.outputBody, strings.TrimSuffix(string(bodyResult), "\n"))
+				} else {
+					assert.Equal(t, test.want.outputBody, strings.TrimSuffix(string(bodyResult), "\n"))
+				}
+			}
+
+			err := res.Body.Close()
+			require.NoError(t, err)
+		})
+	}
+}
