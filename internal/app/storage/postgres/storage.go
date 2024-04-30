@@ -325,16 +325,32 @@ func (s *Postgres) WithdrawUser(ctx context.Context, userID entity.UserID, withd
 	if err != nil {
 		return fmt.Errorf("error while withdrawing user bonuces in postgres: %w", err)
 	}
-	
+
 	diffSum := sum - withdraw.Sum
 	if diffSum < 0 {
 		return err_api.ErrNotEnoughSum
 	}
 
+	queryInsertWithdrawal := `INSERT INTO withdrawals(order_number, sum) VALUES(@orderNumber, @sum)`
+	argsWithdrawal := pgx.NamedArgs{
+		"orderNumber": withdraw.OrderNumber,
+		"sum":         withdraw.Sum,
+	}
+	err = s.execInsertContext(ctx, err_api.ErrOrderNumberExists, queryInsertWithdrawal, argsWithdrawal)
+	if err != nil {
+		return fmt.Errorf("error while inserting user withdraw: %w", err)
+	}
+
 	queryUpdateBalance := `UPDATE balance SET sum=$1 WHERE user_id=$2`
 	_, err = s.db.ExecContext(ctx, queryUpdateBalance, diffSum, userID)
 	if err != nil {
-		return fmt.Errorf("error while updating sum while withdrawing user bonuces in postgres: %w", err)
+		return fmt.Errorf("error while updating balance while withdrawing user bonuces in postgres: %w", err)
+	}
+
+	queryUpdateWithdrawBalance := `UPDATE withdrawn_balance SET withdrawn=withdrawn+$1 WHERE user_id=$2`
+	_, err = s.db.ExecContext(ctx, queryUpdateWithdrawBalance, withdraw.Sum, userID)
+	if err != nil {
+		return fmt.Errorf("error while updating withdrawn sum while withdrawing user bonuces in postgres: %w", err)
 	}
 
 	err = tx.Commit()

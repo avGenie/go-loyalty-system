@@ -1,7 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE IF NOT EXISTS withdrawals(
-	order_number VARCHAR(16) REFERENCES orders(number) ON DELETE CASCADE,
+	order_number VARCHAR(16),
 	sum numeric NOT NULL,
 	process_date TIMESTAMP NOT NULL DEFAULT now()
 );
