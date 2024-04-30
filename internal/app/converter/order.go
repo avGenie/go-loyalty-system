@@ -21,7 +21,7 @@ func ConvertStorageOrdersToOutputUploadedOrders(orders entity.Orders) (model.Upl
 
 		uploadedOrder := model.UploadedOrder{
 			Number:     string(order.Number),
-			Status:     order.Status,
+			Status:     string(order.Status),
 			Accrual:    order.Accrual,
 			UploadTime: carbon.Parse(timeCreated.String()).ToRfc3339String(),
 		}
@@ -34,7 +34,22 @@ func ConvertStorageOrdersToOutputUploadedOrders(orders entity.Orders) (model.Upl
 func ConvertAccrualResponseToOrder(response model.AccrualResponse) entity.Order {
 	return entity.Order{
 		Number: entity.OrderNumber(response.Number),
-		Status: response.Status,
+		Status: ConvertAccrualStatusToAPI(model.AccrualOrderStatus(response.Status)),
 		Accrual: response.Accrual,
+	}
+}
+
+func ConvertAccrualStatusToAPI(accrualStatus model.AccrualOrderStatus) entity.OrderStatus {
+	switch accrualStatus {
+	case model.StatusInvalidAccrual:
+		return entity.StatusInvalidOrder
+	case model.StatusRegisteredAccrual:
+		return entity.StatusNewOrder
+	case model.StatusProcessingAccrual:
+		return entity.StatusProcessingOrder
+	case model.StatusProcessedAccrual:
+		return entity.StatusProcessedOrder
+	default:
+		return entity.StatusInvalidOrder
 	}
 }

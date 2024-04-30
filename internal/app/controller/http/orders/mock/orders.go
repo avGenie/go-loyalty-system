@@ -80,22 +80,8 @@ func (mr *MockOrderProcessorMockRecorder) GetUserWithdrawals(ctx, userID interfa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetUserWithdrawals", reflect.TypeOf((*MockOrderProcessor)(nil).GetUserWithdrawals), ctx, userID)
 }
 
-// UpdateBalanceBatch mocks base method.
-func (m *MockOrderProcessor) UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdateBalanceBatch", ctx, balances)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdateBalanceBatch indicates an expected call of UpdateBalanceBatch.
-func (mr *MockOrderProcessorMockRecorder) UpdateBalanceBatch(ctx, balances interface{}) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateBalanceBatch", reflect.TypeOf((*MockOrderProcessor)(nil).UpdateBalanceBatch), ctx, balances)
-}
-
 // UpdateOrders mocks base method.
-func (m *MockOrderProcessor) UpdateOrders(ctx context.Context, orders entity.Orders) error {
+func (m *MockOrderProcessor) UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "UpdateOrders", ctx, orders)
 	ret0, _ := ret[0].(error)

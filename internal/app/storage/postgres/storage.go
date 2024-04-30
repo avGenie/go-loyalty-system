@@ -10,6 +10,7 @@ import (
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	err_api "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/storage/api/model"
+	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/order"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -203,87 +204,71 @@ func (s *Postgres) GetUserOrders(ctx context.Context, userID entity.UserID) (ent
 	return orders, nil
 }
 
-func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.Orders) error {
+func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction while updating orders in postgres: %w", err)
 	}
 	defer tx.Rollback()
 
-	selectQuery := `SELECT * FROM orders WHERE number=$1`
+	selectQuery := `SELECT status, accrual FROM orders WHERE number=$1 FOR UPDATE`
 	stmtSelect, err := tx.PrepareContext(ctx, selectQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare select query while updating orders in postgres: %w", err)
 	}
 
-	updateQuery := `UPDATE orders SET status=$1::order_status, accrual=$2 WHERE number=$3`
-	stmtUpdate, err := tx.PrepareContext(ctx, updateQuery)
+	updateOrderQuery := `UPDATE orders SET status=$1::order_status, accrual=$2 WHERE number=$3`
+	stmtUpdateOrder, err := tx.PrepareContext(ctx, updateOrderQuery)
 	if err != nil {
 		return fmt.Errorf("failed to prepare update query while updating orders in postgres: %w", err)
 	}
 
+	queryUpdateBalance := `UPDATE balance SET sum=sum+$1 WHERE user_id=$2`
+	stmtUpdateBalance, err := tx.PrepareContext(ctx, queryUpdateBalance)
+	if err != nil {
+		return fmt.Errorf("failed to prepare update query while updating user balances in postgres: %w", err)
+	}
+
 	for _, order := range orders {
-		_, err = stmtSelect.ExecContext(ctx, order.Number)
+		row := stmtSelect.QueryRowContext(ctx, order.Order.Number)
+		if row == nil {
+			return fmt.Errorf("error while postgres request preparation while selecting order for update")
+		}
+	
+		if row.Err() != nil {
+			return fmt.Errorf("error while postgres request execution while selecting order for update: %w", row.Err())
+		}
+	
+		var status string
+		var accrual float64
+		err := row.Scan(&status, &accrual)
 		if err != nil {
-			return fmt.Errorf("failed to select query while updating orders in postgres: %w", err)
+			if err == sql.ErrNoRows {
+				return err_api.ErrOrderNumberNotFound
+			}
+			return fmt.Errorf("error while processing response row in postgres while selecting order for update: %w", err)
 		}
 
-		_, err = stmtUpdate.ExecContext(ctx, order.Status, order.Accrual, order.Number)
+		if !usecase.IsUpdatableAccrualStatus(order.Order.Status, entity.OrderStatus(status)) {
+			continue
+		}
+
+		_, err = stmtUpdateOrder.ExecContext(ctx, order.Order.Status, order.Order.Accrual, order.Order.Number)
 		if err != nil {
 			return fmt.Errorf("failed to update query while updating orders in postgres: %w", err)
+		}
+
+		if accrual == 0 && entity.StatusProcessedOrder == order.Order.Status {
+			_, err = stmtUpdateBalance.ExecContext(ctx, order.Order.Accrual, order.UserID)
+			if err != nil {
+				return fmt.Errorf("failed to update query while updating orders in postgres: %w", err)
+			}
 		}
 	}
 
 	err = tx.Commit()
 	if err != nil {
 		return fmt.Errorf("unable to commit transaction while updating orders in postgres: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Postgres) UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction while updating user balances in postgres: %w", err)
-	}
-	defer tx.Rollback()
-
-	queryUpdate := `UPDATE balance SET sum=sum+$1 WHERE user_id=$2`
-	stmtUpdate, err := tx.PrepareContext(ctx, queryUpdate)
-	if err != nil {
-		return fmt.Errorf("failed to prepare update query while updating user balances in postgres: %w", err)
-	}
-
-	queryInsert := `INSERT INTO balance VALUES($1, $2)`
-	stmtInsert, err := tx.PrepareContext(ctx, queryInsert)
-	if err != nil {
-		return fmt.Errorf("failed to prepare insert query while updating user balances in postgres: %w", err)
-	}
-
-	for _, balance := range balances {
-		_, err := s.selectUserBalanceOnUpdate(ctx, balance.UserID)
-		if err != nil {
-			if err != sql.ErrNoRows {
-				return fmt.Errorf("failed to execute select query while updating user balances in postgres: %w", err)
-			}
-
-			_, err = stmtInsert.ExecContext(ctx, balance.UserID, balance.Balance)
-			if err != nil {
-				return fmt.Errorf("failed to execute insert query while updating user balances in postgres: %w", err)
-			}
-			continue
-		}
-
-		_, err = stmtUpdate.ExecContext(ctx, balance.Balance, balance.UserID)
-		if err != nil {
-			return fmt.Errorf("failed to execute update query while updating user balances in postgres: %w", err)
-		}
-	}
-
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("unable to commit transaction while updating user balances in postgres: %w", err)
 	}
 
 	return nil

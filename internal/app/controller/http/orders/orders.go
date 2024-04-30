@@ -15,6 +15,7 @@ import (
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/model"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
+	"github.com/avGenie/go-loyalty-system/internal/app/usecase/order"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/validator"
 	"go.uber.org/zap"
 )
@@ -34,8 +35,7 @@ const (
 type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
-	UpdateOrders(ctx context.Context, orders entity.Orders) error
-	UpdateBalanceBatch(ctx context.Context, balances entity.UpdateUserBalances) error
+	UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
 	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
 	GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error)
@@ -282,22 +282,12 @@ func (p *Order) parseUserWithdraw(w http.ResponseWriter, r *http.Request) (entit
 
 func (p *Order) updateOrders() {
 	ticker := time.NewTicker(tickerTime)
-	orders := make(entity.Orders, 0, flushBufLen)
-	balance := make(map[entity.UserID]float64, flushBufLen)
+	orders := make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen)
 
 	flushOrders := func() {
 		if len(orders) != 0 {
 			p.updateOrdersStorage(orders)
-			orders = orders[:0]
-		}
-		if len(balance) != 0 {
-			err := p.updateBalanceStorage(balance)
-			if err != nil {
-				zap.L().Error("error while updating balance batch", zap.Error(err))
-				return
-			}
-
-			clear(balance)
+			clear(orders)
 		}
 	}
 
@@ -323,54 +313,32 @@ func (p *Order) updateOrders() {
 			zap.L().Debug(
 				"accrual order status",
 				zap.String("order_number", string(accrualOrder.Order.Number)),
-				zap.String("status", accrualOrder.Order.Status),
+				zap.String("status", string(accrualOrder.Order.Status)),
 				zap.String("user_id", string(accrualOrder.UserID.String())),
 			)
 
-			if string(model.StatusProcessedAccrual) == accrualOrder.Order.Status {
-				balance[accrualOrder.UserID] += accrualOrder.Order.Accrual
-			}
-
-			if model.StatusRegisteredAccrual == model.AccrualOrderStatus(accrualOrder.Order.Status) {
-				zap.L().Debug("accrual order registered", zap.String("number", string(accrualOrder.Order.Number)))
-				continue
-			}
-
-			zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
-
-			orders = append(orders, accrualOrder.Order)
-			if len(orders) == cap(orders) {
-				flushOrders()
+			mappedOrder, ok := orders[accrualOrder.Order.Number]
+			if !ok || (ok && order.IsUpdatableAccrualStatus(accrualOrder.Order.Status, mappedOrder.Order.Status)) {
+				zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
+				orders[accrualOrder.Order.Number] = entity.UpdateUserOrder{
+					UserID: accrualOrder.UserID,
+					Order: accrualOrder.Order,
+				}
 			}
 		}
 	}
 }
 
-func (p *Order) updateBalanceStorage(userBalances map[entity.UserID]float64) error {
-	var balances entity.UpdateUserBalances
-	for userID, balance := range userBalances {
-		balances = append(balances, entity.UserBalance{
-			UserID: userID,
-			Balance: balance,
-		})
+func (p *Order) updateOrdersStorage(orders map[entity.OrderNumber]entity.UpdateUserOrder) {
+	dbOrders := make(entity.UpdateUserOrders, 0, len(orders))
+	for _, order := range orders {
+		dbOrders = append(dbOrders, order)
 	}
 
 	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
 	defer close()
 
-	err := p.storage.UpdateBalanceBatch(ctx, balances)
-	if err != nil {
-		return fmt.Errorf("error while updating balance batch: %w", err)
-	}
-
-	return nil
-}
-
-func (p *Order) updateOrdersStorage(orders entity.Orders) {
-	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
-	defer close()
-
-	err := p.storage.UpdateOrders(ctx, orders)
+	err := p.storage.UpdateOrders(ctx, dbOrders)
 	if err != nil {
 		zap.L().Error("error while updating orders", zap.Error(err))
 	}
@@ -378,7 +346,7 @@ func (p *Order) updateOrdersStorage(orders entity.Orders) {
 
 func (p *Order) updateAccrualState(userID entity.UserID, orders entity.Orders) {
 	for _, order := range orders {
-		if order.Status == string(model.StatusNewOrder) || order.Status == string(model.StatusProcessingOrder) {
+		if order.Status == entity.StatusNewOrder || order.Status == entity.StatusProcessingOrder {
 			p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, order.Number))
 		}
 	}
