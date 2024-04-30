@@ -160,6 +160,7 @@ func (p *Order) WithdrawBonuses() http.HandlerFunc {
 		withdraw, err := p.parseUserWithdraw(w, r)
 		if err != nil {
 			zap.L().Error("error while parsing user withdraw", zap.Error(err))
+			return
 		}
 
 		p.withdrawUserBonuses(userID, withdraw, w)

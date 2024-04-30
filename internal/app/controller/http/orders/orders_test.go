@@ -18,6 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	inputInvalid = `<invalid json>`
+)
+
 type Reader interface {
 	Read(p []byte) (n int, err error)
 }
@@ -486,6 +490,7 @@ func TestGetUserBalance(t *testing.T) {
 		storageErr   error
 		isGetBalance bool
 		isContext    bool
+		isJSONBody   bool
 		dbOutput     entity.UserBalance
 		userIDCtx    entity.UserIDCtx
 
@@ -497,6 +502,7 @@ func TestGetUserBalance(t *testing.T) {
 			storageErr:   nil,
 			isGetBalance: true,
 			isContext:    true,
+			isJSONBody:   true,
 			dbOutput:     correctDBOutput,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
@@ -523,20 +529,20 @@ func TestGetUserBalance(t *testing.T) {
 			},
 		},
 		{
-			name:        "user id context undefined",
-			storageErr:  nil,
+			name:         "user id context undefined",
+			storageErr:   nil,
 			isGetBalance: false,
-			isContext:   false,
+			isContext:    false,
 
 			want: want{
 				statusCode: http.StatusInternalServerError,
 			},
 		},
 		{
-			name:        "user id bad request",
-			storageErr:  nil,
+			name:         "user id bad request",
+			storageErr:   nil,
 			isGetBalance: false,
-			isContext:   true,
+			isContext:    true,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
 				StatusCode: http.StatusBadRequest,
@@ -548,10 +554,10 @@ func TestGetUserBalance(t *testing.T) {
 			},
 		},
 		{
-			name:        "user unauthorized",
-			storageErr:  nil,
+			name:         "user unauthorized",
+			storageErr:   nil,
 			isGetBalance: false,
-			isContext:   true,
+			isContext:    true,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
 				StatusCode: http.StatusUnauthorized,
@@ -563,10 +569,10 @@ func TestGetUserBalance(t *testing.T) {
 			},
 		},
 		{
-			name:        "user id is invalid",
-			storageErr:  nil,
+			name:         "user id is invalid",
+			storageErr:   nil,
 			isGetBalance: false,
-			isContext:   true,
+			isContext:    true,
 			userIDCtx: entity.UserIDCtx{
 				UserID:     "",
 				StatusCode: http.StatusOK,
@@ -581,7 +587,7 @@ func TestGetUserBalance(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "/api/user/orders", nil)
+			request := httptest.NewRequest(http.MethodGet, "/api/user/balance", nil)
 			writer := httptest.NewRecorder()
 
 			if test.isContext {
@@ -604,6 +610,238 @@ func TestGetUserBalance(t *testing.T) {
 			res := writer.Result()
 
 			assert.Equal(t, test.want.statusCode, res.StatusCode)
+
+			if len(test.want.outputBody) != 0 {
+				bodyResult, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				if test.isJSONBody {
+					assert.JSONEq(t, test.want.outputBody, strings.TrimSuffix(string(bodyResult), "\n"))
+				} else {
+					assert.Equal(t, test.want.outputBody, strings.TrimSuffix(string(bodyResult), "\n"))
+				}
+			}
+
+			err := res.Body.Close()
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestWithdrawBonuses(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orderProcessor := mock.NewMockOrderProcessor(ctrl)
+	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
+
+	inputCorrect := strings.TrimSpace(`
+	{
+		"order": "221488416308",
+		"sum": 751
+	}`)
+
+	inputIncorrect := strings.TrimSpace(`
+	{
+		"order": "1",
+		"sum": 751
+	}`)
+
+	type want struct {
+		statusCode int
+		outputBody string
+	}
+	tests := []struct {
+		name              string
+		storageErr        error
+		isWithdrawBonuses bool
+		isContext         bool
+		body              Reader
+		userIDCtx         entity.UserIDCtx
+
+		want want
+	}{
+		{
+			name:              "correct input withdraw",
+			storageErr:        nil,
+			isWithdrawBonuses: true,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusOK,
+			},
+		},
+		{
+			name:              "invalid order number",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              strings.NewReader(inputIncorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusUnprocessableEntity,
+			},
+		},
+		{
+			name:              "invalid JSON",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              strings.NewReader(inputInvalid),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:              "read order number error",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              errReader(0),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:              "not enough money",
+			storageErr:        err_storage.ErrNotEnoughSum,
+			isWithdrawBonuses: true,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusPaymentRequired,
+			},
+		},
+		{
+			name:              "database error",
+			storageErr:        errors.New(""),
+			isWithdrawBonuses: true,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:              "user id context undefined",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         false,
+			body:              strings.NewReader(inputCorrect),
+
+			want: want{
+				statusCode: http.StatusInternalServerError,
+			},
+		},
+		{
+			name:              "user id bad request",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusBadRequest,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+		{
+			name:              "user unauthorized",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "ac2a4811-4f10-487f-bde3-e39a14af7cd8",
+				StatusCode: http.StatusUnauthorized,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrTokenExpired,
+			},
+		},
+		{
+			name:              "user id is invalid",
+			storageErr:        nil,
+			isWithdrawBonuses: false,
+			isContext:         true,
+			body:              strings.NewReader(inputCorrect),
+			userIDCtx: entity.UserIDCtx{
+				UserID:     "",
+				StatusCode: http.StatusOK,
+			},
+
+			want: want{
+				statusCode: http.StatusUnauthorized,
+				outputBody: ErrInvalidAuth,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/api/user/balance/withdraw", test.body)
+			writer := httptest.NewRecorder()
+
+			if test.isContext {
+				request = request.WithContext(context.WithValue(request.Context(), entity.UserIDCtxKey{}, test.userIDCtx))
+			}
+
+			if test.isWithdrawBonuses {
+				orderProcessor.EXPECT().WithdrawUser(gomock.Any(), gomock.Any(), gomock.Any()).Return(test.storageErr)
+			} else {
+				orderProcessor.EXPECT().WithdrawUser(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+			}
+
+			accrualConnector.EXPECT().GetOutput().AnyTimes()
+			accrualConnector.EXPECT().CloseInput().AnyTimes()
+
+			orders := New(orderProcessor, accrualConnector)
+			handler := orders.WithdrawBonuses()
+			handler(writer, request)
+
+			res := writer.Result()
+
+			assert.Equal(t, test.want.statusCode, res.StatusCode)
+
+			if len(test.want.outputBody) != 0 {
+				bodyResult, err := io.ReadAll(res.Body)
+				require.NoError(t, err)
+				assert.Equal(t, test.want.outputBody, strings.TrimSuffix(string(bodyResult), "\n"))
+			}
 
 			err := res.Body.Close()
 			require.NoError(t, err)
