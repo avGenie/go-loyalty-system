@@ -116,7 +116,7 @@ func (s *Postgres) GetUser(ctx context.Context, user entity.User) (entity.User, 
 
 	err := row.Scan(&user.ID, &user.Password)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return user, err_api.ErrLoginNotFound
 		}
 		return user, fmt.Errorf("error while processing response row in postgres while getting user: %w", err)
@@ -243,7 +243,7 @@ func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.UpdateUserOrd
 		var accrual float64
 		err := row.Scan(&status, &accrual)
 		if err != nil {
-			if err == sql.ErrNoRows {
+			if errors.Is(err, sql.ErrNoRows) {
 				return err_api.ErrOrderNumberNotFound
 			}
 			return fmt.Errorf("error while processing response row in postgres while selecting order for update: %w", err)
@@ -258,7 +258,7 @@ func (s *Postgres) UpdateOrders(ctx context.Context, orders entity.UpdateUserOrd
 			return fmt.Errorf("failed to update query while updating orders in postgres: %w", err)
 		}
 
-		if accrual == 0 && entity.StatusProcessedOrder == order.Order.Status {
+		if usecase.IsUpdateDBBalance(accrual, order.Order.Status) {
 			_, err = stmtUpdateBalance.ExecContext(ctx, order.Order.Accrual, order.UserID)
 			if err != nil {
 				return fmt.Errorf("failed to update query while updating orders in postgres: %w", err)
@@ -294,7 +294,7 @@ func (s *Postgres) GetUserBalance(ctx context.Context, userID entity.UserID) (en
 	}
 	err := row.Scan(&userBalance.Balance, &userBalance.Withdrawans)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return entity.UserBalance{}, err_api.ErrUserNotFoundTable
 		}
 		return entity.UserBalance{}, fmt.Errorf("error while processing response row in postgres while getting user balance: %w", err)
@@ -404,7 +404,7 @@ func (s *Postgres) selectUserBalanceOnUpdate(ctx context.Context, userID entity.
 	var sum float64
 	err := row.Scan(&sum)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return 0, err_api.ErrUserNotFoundTable
 		}
 
@@ -431,7 +431,7 @@ func (s *Postgres) getUserIDByOrderNumber(ctx context.Context, orderNumber entit
 	var userID entity.UserID
 	err := row.Scan(&userID)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return entity.UserID(""), err_api.ErrOrderNumberNotFound
 		}
 

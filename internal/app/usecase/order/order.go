@@ -24,3 +24,7 @@ func IsUpdatableAccrualStatus(newStatus, currentStatus entity.OrderStatus) bool 
 
 	return false
 }
+
+func IsUpdateDBBalance(accrual float64, status entity.OrderStatus) bool {
+	return accrual == 0 && entity.StatusProcessedOrder == status
+}

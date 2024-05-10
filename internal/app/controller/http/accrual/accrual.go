@@ -22,9 +22,10 @@ const (
 )
 
 var (
-	ErrAccrualAddressInvalid = errors.New("accrual address invalid")
-	ErrOrderNotRegister      = errors.New("order is not register in accrual system")
-	ErrRequestsExceeded      = errors.New("number of requests to accrual has been exceeded")
+	ErrUnexpectedAccrualError = errors.New("unexpected accrual error")
+	ErrAccrualAddressInvalid  = errors.New("accrual address invalid")
+	ErrOrderNotRegister       = errors.New("order is not register in accrual system")
+	ErrRequestsExceeded       = errors.New("number of requests to accrual has been exceeded")
 )
 
 type Accrual struct {
@@ -107,7 +108,7 @@ func (a *Accrual) getRequest() {
 func (a *Accrual) processRequests() {
 	for {
 		select {
-		case <- a.done:
+		case <-a.done:
 			a.connector.CloseOutput()
 			return
 		default:
@@ -134,7 +135,7 @@ func (a *Accrual) processRequests() {
 
 			accrualResp, err := a.processAccrualResponse(res)
 			if err != nil {
-				if errors.Is(err, ErrOrderNotRegister) {
+				if errors.Is(err, ErrOrderNotRegister) || errors.Is(err, ErrUnexpectedAccrualError) {
 					continue
 				} else if !errors.Is(err, ErrRequestsExceeded) {
 					zap.L().Error("error while processing accrual response", zap.Error(err))
@@ -149,7 +150,7 @@ func (a *Accrual) processRequests() {
 
 			a.connector.SetOutput(entity.CreateProcessingAccrualOrder(request.UserID, accrualResp.Order))
 		}
-		
+
 	}
 }
 
@@ -167,6 +168,11 @@ func (a *Accrual) processAccrualResponse(res *http.Response) (entity.AccrualProc
 		return entity.AccrualProcessingResponse{
 			RetryAfter: time.Duration(retryTime) * time.Second,
 		}, ErrRequestsExceeded
+	}
+
+	if http.StatusOK != status {
+		zap.L().Error("unexpected status from accrual system", zap.Int("status", status))
+		return entity.AccrualProcessingResponse{}, ErrUnexpectedAccrualError
 	}
 
 	var response model.AccrualResponse
