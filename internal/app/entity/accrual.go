@@ -9,6 +9,9 @@ type AccrualStatus int
 const (
 	StatusProcessing AccrualStatus = iota
 	StatusPause
+	StatusOrderNotRegistered
+	StatusOK
+	StatusError
 )
 
 type AccrualProcessingResponse struct {
@@ -22,9 +25,10 @@ type AccrualOrderRequest struct {
 }
 
 type AccrualOrder struct {
-	Order  Order
-	UserID UserID
-	Status AccrualStatus
+	Order      Order
+	UserID     UserID
+	RetryAfter time.Duration
+	Status     AccrualStatus
 }
 
 func CreateAccrualRequest(userID UserID, number OrderNumber) AccrualOrderRequest {
