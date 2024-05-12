@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	"github.com/avGenie/go-loyalty-system/internal/app/controller/http/orders/mock"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
@@ -32,12 +33,17 @@ func (errReader) Read(p []byte) (n int, err error) {
 	return 0, errors.New("test error")
 }
 
+func Config() config.Config {
+	return config.Config{
+		AccrualAddr: "localhost:64321",
+	}
+}
+
 func TestUploadOrder(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
 	orderProcessor := mock.NewMockOrderProcessor(ctrl)
-	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	type want struct {
 		statusCode int
@@ -213,16 +219,9 @@ func TestUploadOrder(t *testing.T) {
 				orderProcessor.EXPECT().UploadOrder(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			if test.isUpdateAccrual {
-				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(1)
-			} else {
-				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(0)
-			}
+			orderProcessor.EXPECT().GetOrdersForUpdate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-			accrualConnector.EXPECT().GetOutput().AnyTimes()
-			accrualConnector.EXPECT().CloseInput().AnyTimes()
-
-			orders := New(orderProcessor, accrualConnector)
+			orders := New(orderProcessor, Config())
 			handler := orders.UploadOrder()
 			handler(writer, request)
 
@@ -247,7 +246,6 @@ func TestGetUserOrders(t *testing.T) {
 	defer ctrl.Finish()
 
 	orderProcessor := mock.NewMockOrderProcessor(ctrl)
-	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	outputCorrect := strings.TrimSpace(`
 	[
@@ -428,16 +426,9 @@ func TestGetUserOrders(t *testing.T) {
 				orderProcessor.EXPECT().GetUserOrders(gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			if test.isUpdateAccrual {
-				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(test.accrualCount)
-			} else {
-				accrualConnector.EXPECT().SetInput(gomock.Any()).Times(test.accrualCount)
-			}
+			orderProcessor.EXPECT().GetOrdersForUpdate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-			accrualConnector.EXPECT().GetOutput().AnyTimes()
-			accrualConnector.EXPECT().CloseInput().AnyTimes()
-
-			orders := New(orderProcessor, accrualConnector)
+			orders := New(orderProcessor, Config())
 			handler := orders.GetUserOrders()
 			handler(writer, request)
 
@@ -466,7 +457,6 @@ func TestGetUserBalance(t *testing.T) {
 	defer ctrl.Finish()
 
 	orderProcessor := mock.NewMockOrderProcessor(ctrl)
-	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	outputCorrect := strings.TrimSpace(`
 	{
@@ -600,10 +590,9 @@ func TestGetUserBalance(t *testing.T) {
 				orderProcessor.EXPECT().GetUserBalance(gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			accrualConnector.EXPECT().GetOutput().AnyTimes()
-			accrualConnector.EXPECT().CloseInput().AnyTimes()
+			orderProcessor.EXPECT().GetOrdersForUpdate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-			orders := New(orderProcessor, accrualConnector)
+			orders := New(orderProcessor, Config())
 			handler := orders.GetUserBalance()
 			handler(writer, request)
 
@@ -632,7 +621,6 @@ func TestWithdrawBonuses(t *testing.T) {
 	defer ctrl.Finish()
 
 	orderProcessor := mock.NewMockOrderProcessor(ctrl)
-	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	inputCorrect := strings.TrimSpace(`
 	{
@@ -826,10 +814,9 @@ func TestWithdrawBonuses(t *testing.T) {
 				orderProcessor.EXPECT().WithdrawUser(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			accrualConnector.EXPECT().GetOutput().AnyTimes()
-			accrualConnector.EXPECT().CloseInput().AnyTimes()
+			orderProcessor.EXPECT().GetOrdersForUpdate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-			orders := New(orderProcessor, accrualConnector)
+			orders := New(orderProcessor, Config())
 			handler := orders.WithdrawBonuses()
 			handler(writer, request)
 
@@ -854,7 +841,6 @@ func TestGetUserWithdrawals(t *testing.T) {
 	defer ctrl.Finish()
 
 	orderProcessor := mock.NewMockOrderProcessor(ctrl)
-	accrualConnector := mock.NewMockAccrualOrderConnector(ctrl)
 
 	outputCorrect := strings.TrimSpace(`
 	[
@@ -1027,10 +1013,9 @@ func TestGetUserWithdrawals(t *testing.T) {
 				orderProcessor.EXPECT().GetUserWithdrawals(gomock.Any(), gomock.Any()).Times(0)
 			}
 
-			accrualConnector.EXPECT().GetOutput().AnyTimes()
-			accrualConnector.EXPECT().CloseInput().AnyTimes()
+			orderProcessor.EXPECT().GetOrdersForUpdate(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
 
-			orders := New(orderProcessor, accrualConnector)
+			orders := New(orderProcessor, Config())
 			handler := orders.GetUserWithdrawals()
 			handler(writer, request)
 
