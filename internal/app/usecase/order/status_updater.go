@@ -93,21 +93,21 @@ func (u *StatusUpdater) requestForUpdate(orders entity.UpdateUserOrders) {
 		}
 
 		if entity.StatusPause == accrualOrder.Status {
+			zap.L().Info("accrual update request returns retry after value", zap.Int("retry after", int(accrualOrder.RetryAfter)))
 			u.flushUpdates()
 			<-time.After(accrualOrder.RetryAfter)
 
 			continue
 		}
 
+		if entity.StatusOrderNotRegistered == accrualOrder.Status {
+			zap.L().Info("order not registered while getting accrual update")
+			continue
+		}
+
 		updatedOrder := entity.UpdateUserOrder{
 			UserID: accrualOrder.UserID,
 			Order:  accrualOrder.Order,
-		}
-
-		if entity.StatusOrderNotRegistered == accrualOrder.Status {
-			updatedOrder.Order = order.Order
-			updatedOrder.Order.Accrual = 0
-			updatedOrder.Order.Status = entity.StatusInvalidOrder
 		}
 
 		u.batchOrders[accrualOrder.Order.Number] = updatedOrder
