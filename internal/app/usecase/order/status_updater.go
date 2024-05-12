@@ -7,8 +7,8 @@ import (
 
 	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
-	"github.com/avGenie/go-loyalty-system/internal/app/usecase/accrual"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
+	"github.com/avGenie/go-loyalty-system/internal/app/usecase/accrual"
 	"go.uber.org/zap"
 )
 
@@ -28,6 +28,7 @@ type StatusUpdater struct {
 	updater         OrdersUpdater
 	accrual         *accrual.Accrual
 	batchOrders     map[entity.OrderNumber]entity.UpdateUserOrder
+	done            chan struct{}
 	countForUpdate  int
 	offsetForUpdate int
 }
@@ -37,6 +38,7 @@ func CreateStatusUpdater(updater OrdersUpdater, config config.Config) *StatusUpd
 		updater:         updater,
 		accrual:         accrual.New(config),
 		batchOrders:     make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen),
+		done:            make(chan struct{}),
 		countForUpdate:  flushBufLen,
 		offsetForUpdate: 0,
 	}
@@ -44,14 +46,24 @@ func CreateStatusUpdater(updater OrdersUpdater, config config.Config) *StatusUpd
 
 func (u *StatusUpdater) Start() {
 	for {
-		orders := u.getOrdersForUpdate()
-		if len(orders) == 0 {
-			continue
-		}
+		select {
+		case <-u.done:
+			zap.L().Info("status updater work has finished")
+			return
+		default:
+			orders := u.getOrdersForUpdate()
+			if len(orders) == 0 {
+				continue
+			}
 
-		u.requestForUpdate(orders)
-		u.flushUpdates()
+			u.requestForUpdate(orders)
+			u.flushUpdates()
+		}
 	}
+}
+
+func (u *StatusUpdater) Stop() {
+	close(u.done)
 }
 
 func (u *StatusUpdater) getOrdersForUpdate() entity.UpdateUserOrders {
@@ -64,7 +76,7 @@ func (u *StatusUpdater) getOrdersForUpdate() entity.UpdateUserOrders {
 			u.offsetForUpdate = 0
 			return entity.UpdateUserOrders{}
 		}
-		
+
 		zap.L().Error("error while getting orders for update", zap.Error(err))
 		return entity.UpdateUserOrders{}
 	}

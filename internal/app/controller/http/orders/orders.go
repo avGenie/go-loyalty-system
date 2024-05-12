@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
@@ -26,14 +27,12 @@ const (
 )
 
 const (
-	flushBufLen = 10
-
-	tickerTime  = 5 * time.Second
 	stopTimeout = 5 * time.Second
 )
 
 type OrderProcessor interface {
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
+	GetOrdersForUpdate(ctx context.Context, count, offset int) (entity.UpdateUserOrders, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error
 	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
@@ -48,25 +47,45 @@ type AccrualOrderConnector interface {
 }
 
 type Order struct {
-	storage          OrderProcessor
-	accrualConnector AccrualOrderConnector
-	wg               *sync.WaitGroup
+	storage       OrderProcessor
+	statusUpdater *order.StatusUpdater
+	wg            *sync.WaitGroup
 }
 
-func New(storage OrderProcessor, accrualConnector AccrualOrderConnector) Order {
+func New(storage OrderProcessor, config config.Config) Order {
 	instance := Order{
-		storage:          storage,
-		accrualConnector: accrualConnector,
-		wg:               &sync.WaitGroup{},
+		storage:       storage,
+		statusUpdater: order.CreateStatusUpdater(storage, config),
+		wg:            &sync.WaitGroup{},
 	}
 
 	instance.wg.Add(1)
 	go func() {
 		instance.wg.Done()
-		instance.updateOrders()
+		instance.statusUpdater.Start()
 	}()
 
 	return instance
+}
+
+func (p *Order) Stop() {
+	p.statusUpdater.Stop()
+
+	ready := make(chan bool)
+	go func() {
+		defer close(ready)
+		p.wg.Wait()
+	}()
+
+	// устанавливаем таймаут на ожидание сброса в БД последней порции
+	select {
+	case <-time.After(stopTimeout):
+		zap.L().Error("timeout stopped while sending data for update orders to the storage while shutting down")
+		return
+	case <-ready:
+		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
+		return
+	}
 }
 
 func (p *Order) UploadOrder() http.HandlerFunc {
@@ -106,8 +125,6 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			zap.String("order_number", string(orderNumber)),
 		)
 
-		p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, orderNumber))
-
 		p.validateUploadOrderResult(userID, storageUserID, w)
 	}
 }
@@ -124,8 +141,6 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 		if err != nil {
 			return
 		}
-
-		p.updateAccrualState(userID, orders)
 
 		p.sendUserOrders(orders, w)
 	}
@@ -181,24 +196,6 @@ func (p *Order) GetUserWithdrawals() http.HandlerFunc {
 		}
 
 		p.sendUserWithdrawals(withdrawals, w)
-	}
-}
-
-func (p *Order) Stop() {
-	ready := make(chan bool)
-	go func() {
-		defer close(ready)
-		p.wg.Wait()
-	}()
-
-	// устанавливаем таймаут на ожидание сброса в БД последней порции
-	select {
-	case <-time.After(stopTimeout):
-		zap.L().Error("timeout stopped while sending data for update orders to the storage while shutting down")
-		return
-	case <-ready:
-		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
-		return
 	}
 }
 
@@ -279,78 +276,6 @@ func (p *Order) parseUserWithdraw(w http.ResponseWriter, r *http.Request) (entit
 	}
 
 	return converter.ConvertRequestWithdrawToEntity(withdraw), nil
-}
-
-func (p *Order) updateOrders() {
-	ticker := time.NewTicker(tickerTime)
-	orders := make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen)
-
-	flushOrders := func() {
-		if len(orders) != 0 {
-			p.updateOrdersStorage(orders)
-			clear(orders)
-		}
-	}
-
-	for {
-		select {
-		case <-ticker.C:
-			flushOrders()
-		default:
-			accrualOrder, ok := p.accrualConnector.GetOutput()
-			if !ok {
-				zap.L().Info("output channel from accrual connector has been closed")
-				flushOrders()
-				p.accrualConnector.CloseInput()
-				return
-			}
-
-			if entity.StatusPause == accrualOrder.Status {
-				zap.L().Debug("accrual paused")
-				flushOrders()
-				continue
-			}
-
-			zap.L().Debug(
-				"accrual order status",
-				zap.String("order_number", string(accrualOrder.Order.Number)),
-				zap.String("status", string(accrualOrder.Order.Status)),
-				zap.String("user_id", string(accrualOrder.UserID.String())),
-			)
-
-			mappedOrder, ok := orders[accrualOrder.Order.Number]
-			if !ok || (ok && order.IsUpdatableAccrualStatus(accrualOrder.Order.Status, mappedOrder.Order.Status)) {
-				zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
-				orders[accrualOrder.Order.Number] = entity.UpdateUserOrder{
-					UserID: accrualOrder.UserID,
-					Order: accrualOrder.Order,
-				}
-			}
-		}
-	}
-}
-
-func (p *Order) updateOrdersStorage(orders map[entity.OrderNumber]entity.UpdateUserOrder) {
-	dbOrders := make(entity.UpdateUserOrders, 0, len(orders))
-	for _, order := range orders {
-		dbOrders = append(dbOrders, order)
-	}
-
-	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
-	defer close()
-
-	err := p.storage.UpdateOrders(ctx, dbOrders)
-	if err != nil {
-		zap.L().Error("error while updating orders", zap.Error(err))
-	}
-}
-
-func (p *Order) updateAccrualState(userID entity.UserID, orders entity.Orders) {
-	for _, order := range orders {
-		if order.Status == entity.StatusNewOrder || order.Status == entity.StatusProcessingOrder {
-			p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, order.Number))
-		}
-	}
 }
 
 func (p *Order) getUserBalance(userID entity.UserID, w http.ResponseWriter) (entity.UserBalance, error) {
