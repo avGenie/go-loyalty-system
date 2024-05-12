@@ -10,7 +10,7 @@ import (
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	err_api "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"github.com/avGenie/go-loyalty-system/internal/app/storage/api/model"
-	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/order"
+	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/order/storage_utils"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
