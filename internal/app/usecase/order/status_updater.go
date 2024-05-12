@@ -2,11 +2,13 @@ package order
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/accrual"
+	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"go.uber.org/zap"
 )
 
@@ -14,25 +16,29 @@ const (
 	flushBufLen = 10
 
 	requestTimeout = 3 * time.Second
-	updateTimeout = 5 * time.Second
+	updateTimeout  = 5 * time.Second
 )
 
 type OrdersUpdater interface {
-	GetOrdersForUpdate(ctx context.Context) (entity.UpdateUserOrders, error)
+	GetOrdersForUpdate(ctx context.Context, count, offset int) (entity.UpdateUserOrders, error)
 	UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error
 }
 
 type StatusUpdater struct {
-	updater     OrdersUpdater
-	accrual     *accrual.Accrual
-	batchOrders map[entity.OrderNumber]entity.UpdateUserOrder
+	updater         OrdersUpdater
+	accrual         *accrual.Accrual
+	batchOrders     map[entity.OrderNumber]entity.UpdateUserOrder
+	countForUpdate  int
+	offsetForUpdate int
 }
 
 func CreateStatusUpdater(updater OrdersUpdater, config config.Config) *StatusUpdater {
 	return &StatusUpdater{
-		updater:     updater,
-		accrual:     accrual.New(config),
-		batchOrders: make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen),
+		updater:         updater,
+		accrual:         accrual.New(config),
+		batchOrders:     make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen),
+		countForUpdate:  flushBufLen,
+		offsetForUpdate: 0,
 	}
 }
 
@@ -52,8 +58,13 @@ func (u *StatusUpdater) getOrdersForUpdate() entity.UpdateUserOrders {
 	ctx, close := context.WithTimeout(context.Background(), requestTimeout)
 	defer close()
 
-	orders, err := u.updater.GetOrdersForUpdate(ctx)
+	orders, err := u.updater.GetOrdersForUpdate(ctx, u.countForUpdate, u.offsetForUpdate)
 	if err != nil {
+		if errors.Is(err, err_storage.ErrOrdersForUpdateNotFound) {
+			u.offsetForUpdate = 0
+			return entity.UpdateUserOrders{}
+		}
+		
 		zap.L().Error("error while getting orders for update", zap.Error(err))
 		return entity.UpdateUserOrders{}
 	}
@@ -78,7 +89,7 @@ func (u *StatusUpdater) requestForUpdate(orders entity.UpdateUserOrders) {
 
 		updatedOrder := entity.UpdateUserOrder{
 			UserID: accrualOrder.UserID,
-			Order: accrualOrder.Order,
+			Order:  accrualOrder.Order,
 		}
 
 		if entity.StatusOrderNotRegistered == accrualOrder.Status {

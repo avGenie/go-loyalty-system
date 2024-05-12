@@ -390,6 +390,40 @@ func (s *Postgres) GetUserWithdrawals(ctx context.Context, userID entity.UserID)
 	return withdrawals, nil
 }
 
+func (s *Postgres) GetOrdersForUpdate(ctx context.Context, count, offset int) (entity.UpdateUserOrders, error) {
+	querySelect := `SELECT uo.user_id, o.number, o.status, o.accrual, o.date_created FROM orders AS o
+						JOIN users_orders AS uo
+							ON o.number=uo.order_number
+					WHERE o.status NOT IN ('PROCESSED', 'INVALID')
+					LIMIT $1 OFFSET $2`
+
+	rows, err := s.db.QueryContext(ctx, querySelect, count, offset)
+	if err != nil {
+		return nil, fmt.Errorf("error in postgres request execution while getting orders for update: %w", err)
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf("error in postgres requested rows while getting orders for update: %w", rows.Err())
+	}
+
+	var userOrders entity.UpdateUserOrders
+	for rows.Next() {
+		var userOrder entity.UpdateUserOrder
+		err := rows.Scan(&userOrder.UserID, &userOrder.Order.Number, &userOrder.Order.Status, &userOrder.Order.Accrual, &userOrder.Order.DateCreated)
+		if err != nil {
+			return nil, fmt.Errorf("error while parsing row while getting orders for update from postgres: %w", err)
+		}
+
+		userOrders = append(userOrders, userOrder)
+	}
+
+	if len(userOrders) == 0 {
+		return nil, err_api.ErrOrdersForUpdateNotFound
+	}
+
+	return userOrders, nil
+}
+
 func (s *Postgres) selectUserBalanceOnUpdate(ctx context.Context, userID entity.UserID) (float64, error) {
 	querySelect := `SELECT sum FROM balance WHERE user_id=$1 FOR UPDATE`
 	row := s.db.QueryRowContext(ctx, querySelect, userID)
