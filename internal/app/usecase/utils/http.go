@@ -1,5 +1,4 @@
-package httputils
-
+package utils
 import (
 	"time"
 )

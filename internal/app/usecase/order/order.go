@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
+	httputils "github.com/avGenie/go-loyalty-system/internal/app/usecase/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
 	"go.uber.org/zap"
