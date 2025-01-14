@@ -35,6 +35,21 @@ func (m *MockOrderProcessor) EXPECT() *MockOrderProcessorMockRecorder {
 	return m.recorder
 }
 
+// GetOrdersForUpdate mocks base method.
+func (m *MockOrderProcessor) GetOrdersForUpdate(ctx context.Context, count, offset int) (entity.UpdateUserOrders, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrdersForUpdate", ctx, count, offset)
+	ret0, _ := ret[0].(entity.UpdateUserOrders)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrdersForUpdate indicates an expected call of GetOrdersForUpdate.
+func (mr *MockOrderProcessorMockRecorder) GetOrdersForUpdate(ctx, count, offset interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrdersForUpdate", reflect.TypeOf((*MockOrderProcessor)(nil).GetOrdersForUpdate), ctx, count, offset)
+}
+
 // GetUserBalance mocks base method.
 func (m *MockOrderProcessor) GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error) {
 	m.ctrl.T.Helper()

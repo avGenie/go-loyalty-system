@@ -16,4 +16,6 @@ var (
 	ErrNotEnoughSum = errors.New("not enough sum")
 
 	ErrWithdrawalsForUserNotFound = errors.New("withdrawals not found for given user")
+
+	ErrOrdersForUpdateNotFound = errors.New("orders for update not found")
 )

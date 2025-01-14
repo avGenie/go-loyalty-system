@@ -1,7 +1,6 @@
 package orders
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
+	"github.com/avGenie/go-loyalty-system/internal/app/config"
 	"github.com/avGenie/go-loyalty-system/internal/app/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/model"
@@ -26,20 +25,8 @@ const (
 )
 
 const (
-	flushBufLen = 10
-
-	tickerTime  = 5 * time.Second
 	stopTimeout = 5 * time.Second
 )
-
-type OrderProcessor interface {
-	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
-	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
-	UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error
-	GetUserBalance(ctx context.Context, userID entity.UserID) (entity.UserBalance, error)
-	WithdrawUser(ctx context.Context, userID entity.UserID, withdraw entity.Withdraw) error
-	GetUserWithdrawals(ctx context.Context, userID entity.UserID) (entity.Withdrawals, error)
-}
 
 type AccrualOrderConnector interface {
 	SetInput(number entity.AccrualOrderRequest)
@@ -48,25 +35,45 @@ type AccrualOrderConnector interface {
 }
 
 type Order struct {
-	storage          OrderProcessor
-	accrualConnector AccrualOrderConnector
-	wg               *sync.WaitGroup
+	storage       order.OrderProcessor
+	statusUpdater *order.StatusUpdater
+	wg            *sync.WaitGroup
 }
 
-func New(storage OrderProcessor, accrualConnector AccrualOrderConnector) Order {
+func New(storage order.OrderProcessor, config config.Config) Order {
 	instance := Order{
-		storage:          storage,
-		accrualConnector: accrualConnector,
-		wg:               &sync.WaitGroup{},
+		storage:       storage,
+		statusUpdater: order.CreateStatusUpdater(storage, config),
+		wg:            &sync.WaitGroup{},
 	}
 
 	instance.wg.Add(1)
 	go func() {
 		instance.wg.Done()
-		instance.updateOrders()
+		instance.statusUpdater.Start()
 	}()
 
 	return instance
+}
+
+func (p *Order) Stop() {
+	p.statusUpdater.Stop()
+
+	ready := make(chan bool)
+	go func() {
+		defer close(ready)
+		p.wg.Wait()
+	}()
+
+	// устанавливаем таймаут на ожидание сброса в БД последней порции
+	select {
+	case <-time.After(stopTimeout):
+		zap.L().Error("timeout stopped while sending data for update orders to the storage while shutting down")
+		return
+	case <-ready:
+		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
+		return
+	}
 }
 
 func (p *Order) UploadOrder() http.HandlerFunc {
@@ -83,7 +90,7 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			return
 		}
 
-		storageUserID, err := p.uploadOrder(userID, orderNumber, w)
+		storageUserID, err := order.UploadOrder(userID, orderNumber, p.storage, w)
 		if err != nil {
 			if errors.Is(err, err_storage.ErrOrderNumberExists) {
 				zap.L().Info(
@@ -106,9 +113,7 @@ func (p *Order) UploadOrder() http.HandlerFunc {
 			zap.String("order_number", string(orderNumber)),
 		)
 
-		p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, orderNumber))
-
-		p.validateUploadOrderResult(userID, storageUserID, w)
+		w.WriteHeader(http.StatusAccepted)
 	}
 }
 
@@ -120,12 +125,10 @@ func (p *Order) GetUserOrders() http.HandlerFunc {
 			return
 		}
 
-		orders, err := p.getUserOrders(userID, w)
+		orders, err := order.GetUserOrders(userID, p.storage, w)
 		if err != nil {
 			return
 		}
-
-		p.updateAccrualState(userID, orders)
 
 		p.sendUserOrders(orders, w)
 	}
@@ -139,7 +142,7 @@ func (p *Order) GetUserBalance() http.HandlerFunc {
 			return
 		}
 
-		balance, err := p.getUserBalance(userID, w)
+		balance, err := order.GetUserBalance(userID, p.storage, w)
 		if err != nil {
 			zap.L().Error("error while getting user balance", zap.Error(err))
 			return
@@ -163,7 +166,7 @@ func (p *Order) WithdrawBonuses() http.HandlerFunc {
 			return
 		}
 
-		p.withdrawUserBonuses(userID, withdraw, w)
+		order.WithdrawUserBonuses(userID, withdraw, p.storage, w)
 	}
 }
 
@@ -175,30 +178,12 @@ func (p *Order) GetUserWithdrawals() http.HandlerFunc {
 			return
 		}
 
-		withdrawals, err := p.getUserWithdrawals(userID, w)
+		withdrawals, err := order.GetUserWithdrawals(userID, p.storage, w)
 		if err != nil {
 			return
 		}
 
 		p.sendUserWithdrawals(withdrawals, w)
-	}
-}
-
-func (p *Order) Stop() {
-	ready := make(chan bool)
-	go func() {
-		defer close(ready)
-		p.wg.Wait()
-	}()
-
-	// устанавливаем таймаут на ожидание сброса в БД последней порции
-	select {
-	case <-time.After(stopTimeout):
-		zap.L().Error("timeout stopped while sending data for update orders to the storage while shutting down")
-		return
-	case <-ready:
-		zap.L().Info("succsessful sending data for update orders to the storage while shutting down")
-		return
 	}
 }
 
@@ -215,45 +200,6 @@ func (p *Order) sendUserWithdrawals(withdrawals entity.Withdrawals, w http.Respo
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(out)
-}
-
-func (p *Order) getUserWithdrawals(userID entity.UserID, w http.ResponseWriter) (entity.Withdrawals, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-	defer cancel()
-
-	withdrawals, err := p.storage.GetUserWithdrawals(ctx, userID)
-	if err != nil {
-		if errors.Is(err, err_storage.ErrWithdrawalsForUserNotFound) {
-			zap.L().Info("withdrawals for given user not found", zap.String("user_id", userID.String()))
-			w.WriteHeader(http.StatusNoContent)
-		} else {
-			zap.L().Error("error while getting user withdrawals", zap.Error(err))
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		return nil, err
-	}
-
-	return withdrawals, nil
-}
-
-func (p *Order) withdrawUserBonuses(userID entity.UserID, withdraw entity.Withdraw, w http.ResponseWriter) {
-	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-	defer cancel()
-
-	err := p.storage.WithdrawUser(ctx, userID, withdraw)
-	if err != nil {
-		if errors.Is(err, err_storage.ErrNotEnoughSum) {
-			zap.L().Info("not enough money for withdrawing")
-			w.WriteHeader(http.StatusPaymentRequired)
-		} else {
-			zap.L().Error("error while withdrawing user to storage", zap.Error(err))
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
 func (p *Order) parseUserWithdraw(w http.ResponseWriter, r *http.Request) (entity.Withdraw, error) {
@@ -279,111 +225,6 @@ func (p *Order) parseUserWithdraw(w http.ResponseWriter, r *http.Request) (entit
 	}
 
 	return converter.ConvertRequestWithdrawToEntity(withdraw), nil
-}
-
-func (p *Order) updateOrders() {
-	ticker := time.NewTicker(tickerTime)
-	orders := make(map[entity.OrderNumber]entity.UpdateUserOrder, flushBufLen)
-
-	flushOrders := func() {
-		if len(orders) != 0 {
-			p.updateOrdersStorage(orders)
-			clear(orders)
-		}
-	}
-
-	for {
-		select {
-		case <-ticker.C:
-			flushOrders()
-		default:
-			accrualOrder, ok := p.accrualConnector.GetOutput()
-			if !ok {
-				zap.L().Info("output channel from accrual connector has been closed")
-				flushOrders()
-				p.accrualConnector.CloseInput()
-				return
-			}
-
-			if entity.StatusPause == accrualOrder.Status {
-				zap.L().Debug("accrual paused")
-				flushOrders()
-				continue
-			}
-
-			zap.L().Debug(
-				"accrual order status",
-				zap.String("order_number", string(accrualOrder.Order.Number)),
-				zap.String("status", string(accrualOrder.Order.Status)),
-				zap.String("user_id", string(accrualOrder.UserID.String())),
-			)
-
-			mappedOrder, ok := orders[accrualOrder.Order.Number]
-			if !ok || (ok && order.IsUpdatableAccrualStatus(accrualOrder.Order.Status, mappedOrder.Order.Status)) {
-				zap.L().Debug("accrual order successfully appended", zap.String("number", string(accrualOrder.Order.Number)))
-				orders[accrualOrder.Order.Number] = entity.UpdateUserOrder{
-					UserID: accrualOrder.UserID,
-					Order: accrualOrder.Order,
-				}
-			}
-		}
-	}
-}
-
-func (p *Order) updateOrdersStorage(orders map[entity.OrderNumber]entity.UpdateUserOrder) {
-	dbOrders := make(entity.UpdateUserOrders, 0, len(orders))
-	for _, order := range orders {
-		dbOrders = append(dbOrders, order)
-	}
-
-	ctx, close := context.WithTimeout(context.Background(), httputils.UpdateTimeout)
-	defer close()
-
-	err := p.storage.UpdateOrders(ctx, dbOrders)
-	if err != nil {
-		zap.L().Error("error while updating orders", zap.Error(err))
-	}
-}
-
-func (p *Order) updateAccrualState(userID entity.UserID, orders entity.Orders) {
-	for _, order := range orders {
-		if order.Status == entity.StatusNewOrder || order.Status == entity.StatusProcessingOrder {
-			p.accrualConnector.SetInput(entity.CreateAccrualRequest(userID, order.Number))
-		}
-	}
-}
-
-func (p *Order) getUserBalance(userID entity.UserID, w http.ResponseWriter) (entity.UserBalance, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-	defer cancel()
-
-	balance, err := p.storage.GetUserBalance(ctx, userID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return entity.UserBalance{}, fmt.Errorf("error while getting user balance: %w", err)
-	}
-
-	return balance, nil
-}
-
-func (p *Order) getUserOrders(userID entity.UserID, w http.ResponseWriter) (entity.Orders, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-	defer cancel()
-
-	orders, err := p.storage.GetUserOrders(ctx, userID)
-	if err != nil {
-		if errors.Is(err, err_storage.ErrOrderForUserNotFound) {
-			zap.L().Info("orders for given user not found", zap.String("user_id", userID.String()))
-			w.WriteHeader(http.StatusNoContent)
-		} else {
-			zap.L().Error("error while getting user orders", zap.Error(err))
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-
-		return entity.Orders{}, err
-	}
-
-	return orders, nil
 }
 
 func (p *Order) sendUserBalance(balance entity.UserBalance, w http.ResponseWriter) {
@@ -419,43 +260,6 @@ func (p *Order) sendUserOrders(orders entity.Orders, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(out)
-}
-
-func (p *Order) uploadOrder(userID entity.UserID, orderNumber entity.OrderNumber, w http.ResponseWriter) (entity.UserID, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-	defer cancel()
-
-	storageUserID, err := p.storage.UploadOrder(ctx, userID, orderNumber)
-	if err != nil {
-		if errors.Is(err, err_storage.ErrOrderNumberExists) {
-			if userID == storageUserID {
-				w.WriteHeader(http.StatusOK)
-			} else {
-				w.WriteHeader(http.StatusConflict)
-			}
-
-			return storageUserID, err
-		}
-
-		w.WriteHeader(http.StatusInternalServerError)
-		return entity.UserID(""), err
-	}
-
-	return storageUserID, nil
-}
-
-func (p *Order) validateUploadOrderResult(userID entity.UserID, storageUserID entity.UserID, w http.ResponseWriter) {
-	if len(storageUserID.String()) == 0 {
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-
-	if storageUserID == userID {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	w.WriteHeader(http.StatusConflict)
 }
 
 func (p *Order) parseOrderNumber(w http.ResponseWriter, r *http.Request) (entity.OrderNumber, error) {

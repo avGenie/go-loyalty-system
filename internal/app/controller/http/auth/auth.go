@@ -1,16 +1,13 @@
 package auth
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 
-	httputils "github.com/avGenie/go-loyalty-system/internal/app/controller/http/utils"
 	"github.com/avGenie/go-loyalty-system/internal/app/entity"
 	"github.com/avGenie/go-loyalty-system/internal/app/model"
-	err_storage "github.com/avGenie/go-loyalty-system/internal/app/storage/api/errors"
+	"github.com/avGenie/go-loyalty-system/internal/app/usecase/auth"
 	usecase "github.com/avGenie/go-loyalty-system/internal/app/usecase/converter"
 	"github.com/avGenie/go-loyalty-system/internal/app/usecase/crypto"
 	"github.com/avGenie/go-loyalty-system/internal/app/validator"
@@ -20,20 +17,13 @@ import (
 
 const (
 	ErrEmptyUserRequest = "wrong user credentials format: empty login or password"
-	ErrLoginNotExist    = "login doesn't exist"
-	ErrWrongPassword    = "wrong password"
 )
 
-type UserAuthenticator interface {
-	CreateUser(ctx context.Context, user entity.User) error
-	GetUser(ctx context.Context, user entity.User) (entity.User, error)
-}
-
 type AuthUser struct {
-	storage UserAuthenticator
+	storage auth.UserAuthenticator
 }
 
-func New(storage UserAuthenticator) AuthUser {
+func New(storage auth.UserAuthenticator) AuthUser {
 	return AuthUser{
 		storage: storage,
 	}
@@ -47,19 +37,8 @@ func (a *AuthUser) CreateUser() http.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-		defer cancel()
-
-		err = a.storage.CreateUser(ctx, user)
+		err = auth.CreateUser(user, a.storage, w)
 		if err != nil {
-			if errors.Is(err, err_storage.ErrLoginExists) {
-				zap.L().Error("error while creating user", zap.Error(err), zap.String("login", user.Login))
-				w.WriteHeader(http.StatusConflict)
-				return
-			}
-
-			zap.L().Error("error while creating user", zap.Error(err))
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
@@ -75,31 +54,8 @@ func (a *AuthUser) AuthenticateUser() http.HandlerFunc {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), httputils.RequestTimeout)
-		defer cancel()
-
-		storageUser, err := a.storage.GetUser(ctx, inputUser)
+		storageUser, err := auth.AuthUser(inputUser, a.storage, w)
 		if err != nil {
-			zap.L().Error("error while getting user while authentication request", zap.Error(err))
-
-			if errors.Is(err, err_storage.ErrLoginNotFound) {
-				http.Error(w, ErrLoginNotExist, http.StatusUnauthorized)
-				return
-			}
-
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		err = crypto.CheckPasswordHash(inputUser.Password, storageUser.Password)
-		if err != nil {
-			zap.L().Error("error while checking user password while authentication request", zap.Error(err))
-			if errors.Is(err, crypto.ErrWrongPassword) {
-				http.Error(w, ErrLoginNotExist, http.StatusUnauthorized)
-				return
-			}
-
-			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 

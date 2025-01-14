@@ -13,6 +13,7 @@ type Storage interface {
 	GetUser(ctx context.Context, user entity.User) (entity.User, error)
 
 	UploadOrder(ctx context.Context, userID entity.UserID, orderNumber entity.OrderNumber) (entity.UserID, error)
+	GetOrdersForUpdate(ctx context.Context, count, offset int) (entity.UpdateUserOrders, error)
 	GetUserOrders(ctx context.Context, userID entity.UserID) (entity.Orders, error)
 	UpdateOrders(ctx context.Context, orders entity.UpdateUserOrders) error
 
